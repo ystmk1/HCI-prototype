@@ -23,7 +23,6 @@ import { transcribeAudio } from './services/stt'
 import { getGeminiResponse, playAudioBase64 } from './services/gemini'
 
 const STT_KEY = import.meta.env.VITE_GOOGLE_STT_API_KEY
-const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY
 
 const SUGGESTIONS = [
   '목적지로 안내해줘',
@@ -117,7 +116,7 @@ function App() {
   const callGemini = async (text) => {
     setIsAITyping(true)
     try {
-      const { text: aiText, audioBase64, audioMimeType } = await getGeminiResponse(text, GEMINI_KEY)
+      const { text: aiText, audioBase64, audioMimeType } = await getGeminiResponse(text)
       setIsAITyping(false)
       const displayText = aiText || '(음성으로 응답했습니다)'
       setMessages((prev) => [...prev, { id: Date.now(), type: 'ai', text: displayText }])

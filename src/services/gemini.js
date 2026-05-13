@@ -7,18 +7,26 @@ const SYSTEM_PROMPT = `당신은 차량용 AI 어시스턴트입니다. 운전�
 - 네비게이션, 음악, 전화, 날씨, 일정 등 차량 관련 요청에 적극적으로 응답하세요.
 - 운전 중 안전을 항상 최우선으로 고려하세요.`
 
-/**
- * Sends text to Gemini and returns { text, audioBase64, audioMimeType }.
- * The model returns TEXT and AUDIO together; audio is base64-encoded PCM.
- */
-export async function getGeminiResponse(text, apiKey) {
+// Key rotation — cycles to next key on quota error (429)
+const KEYS = (import.meta.env.VITE_GEMINI_API_KEYS ?? '')
+  .split(',')
+  .map((k) => k.trim())
+  .filter(Boolean)
+
+let currentKeyIdx = 0
+
+function nextKey() {
+  const key = KEYS[currentKeyIdx]
+  currentKeyIdx = (currentKeyIdx + 1) % KEYS.length
+  return key
+}
+
+async function callOnce(text, apiKey) {
   const res = await fetch(`${ENDPOINT}?key=${apiKey}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      systemInstruction: {
-        parts: [{ text: SYSTEM_PROMPT }],
-      },
+      systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
       contents: [{ role: 'user', parts: [{ text }] }],
       generationConfig: {
         responseModalities: ['TEXT', 'AUDIO'],
@@ -31,29 +39,55 @@ export async function getGeminiResponse(text, apiKey) {
     }),
   })
 
+  if (res.status === 429) {
+    const err = new Error('quota')
+    err.status = 429
+    throw err
+  }
+
   if (!res.ok) {
-    const err = await res.json()
-    throw new Error(`Gemini: ${err.error?.message ?? res.status}`)
+    const body = await res.json().catch(() => ({}))
+    throw new Error(`Gemini ${res.status}: ${body.error?.message ?? 'unknown'}`)
   }
 
-  const data = await res.json()
-  const parts = data.candidates?.[0]?.content?.parts ?? []
-
-  // Exclude "thought" parts (reasoning trace) — keep only visible text
-  const textPart = parts.find((p) => p.text && !p.thought)?.text ?? ''
-  const audioPart = parts.find((p) => p.inlineData?.mimeType?.startsWith('audio/'))
-
-  return {
-    text: textPart,
-    audioBase64: audioPart?.inlineData?.data ?? null,
-    audioMimeType: audioPart?.inlineData?.mimeType ?? 'audio/pcm',
-  }
+  return res.json()
 }
 
 /**
- * Decodes base64 audio from Gemini and plays it through the browser.
- * Gemini native audio outputs raw PCM (L16, 24 kHz, mono) wrapped in audio/pcm.
- * We convert it to a WAV blob so the browser can play it natively.
+ * Sends text to Gemini with automatic key rotation on quota errors.
+ * Returns { text, audioBase64, audioMimeType }.
+ */
+export async function getGeminiResponse(text) {
+  if (KEYS.length === 0) throw new Error('VITE_GEMINI_API_KEYS is not set')
+
+  let lastErr
+  for (let i = 0; i < KEYS.length; i++) {
+    const key = nextKey()
+    try {
+      const data = await callOnce(text, key)
+      const parts = data.candidates?.[0]?.content?.parts ?? []
+      const textPart = parts.find((p) => p.text && !p.thought)?.text ?? ''
+      const audioPart = parts.find((p) => p.inlineData?.mimeType?.startsWith('audio/'))
+      return {
+        text: textPart,
+        audioBase64: audioPart?.inlineData?.data ?? null,
+        audioMimeType: audioPart?.inlineData?.mimeType ?? 'audio/pcm',
+      }
+    } catch (err) {
+      lastErr = err
+      if (err.status === 429) {
+        console.warn(`Key ${i + 1} quota exceeded, rotating…`)
+        continue
+      }
+      throw err
+    }
+  }
+  throw lastErr
+}
+
+/**
+ * Decodes base64 audio from Gemini and plays it.
+ * Gemini native audio outputs raw PCM (L16, 24 kHz, mono); we wrap it in WAV.
  */
 export function playAudioBase64(base64, mimeType) {
   const raw = atob(base64)
@@ -62,7 +96,6 @@ export function playAudioBase64(base64, mimeType) {
 
   let blob
   if (mimeType === 'audio/pcm' || mimeType === 'audio/l16') {
-    // Wrap raw PCM in a WAV container (24 kHz, mono, 16-bit)
     blob = new Blob([buildWav(bytes, 24000, 1, 16)], { type: 'audio/wav' })
   } else {
     blob = new Blob([bytes], { type: mimeType })
@@ -81,17 +114,15 @@ function buildWav(pcmBytes, sampleRate, channels, bitDepth) {
   const dataLen = pcmBytes.length
   const buffer = new ArrayBuffer(44 + dataLen)
   const view = new DataView(buffer)
-
   const write = (offset, str) => {
     for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i))
   }
-
   write(0, 'RIFF')
   view.setUint32(4, 36 + dataLen, true)
   write(8, 'WAVE')
   write(12, 'fmt ')
   view.setUint32(16, 16, true)
-  view.setUint16(20, 1, true)          // PCM
+  view.setUint16(20, 1, true)
   view.setUint16(22, channels, true)
   view.setUint32(24, sampleRate, true)
   view.setUint32(28, byteRate, true)
@@ -100,6 +131,5 @@ function buildWav(pcmBytes, sampleRate, channels, bitDepth) {
   write(36, 'data')
   view.setUint32(40, dataLen, true)
   new Uint8Array(buffer).set(pcmBytes, 44)
-
   return buffer
 }
