@@ -19,11 +19,9 @@ import iconTruck from '../assets/icons/Icon-10.svg'
 import iconMenu from '../assets/icons/Icon-13.svg'
 import imgBriefing from '../assets/images/image 28.png'
 
-import { transcribeAudio } from './services/stt'
 import { getGeminiResponse } from './services/gemini'
 import { speakText } from './services/tts'
 
-const STT_KEY = import.meta.env.VITE_GOOGLE_STT_API_KEY
 const TTS_KEY = import.meta.env.VITE_GOOGLE_TTS_API_KEY
 
 const SUGGESTIONS = [
@@ -99,8 +97,7 @@ function App() {
   const [isBriefingOpen, setIsBriefingOpen] = useState(false)
 
   const messagesEndRef = useRef(null)
-  const mediaRecorderRef = useRef(null)
-  const audioChunksRef = useRef([])
+  const recognitionRef = useRef(null)
 
   const formatTime = (date) =>
     date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
@@ -114,7 +111,7 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isAITyping])
 
-  // ── Gemini call (shared by voice and text paths) ──────────
+  // ── Gemini + TTS ──────────────────────────────────────────
   const callGemini = async (text) => {
     setIsAITyping(true)
     try {
@@ -124,11 +121,11 @@ function App() {
       setMessages((prev) => [...prev, { id: Date.now(), type: 'ai', text: displayText }])
       if (aiText && TTS_KEY) speakText(aiText, TTS_KEY).catch(console.error)
     } catch (err) {
-      console.error(err)
+      console.error('Gemini error:', err)
       setIsAITyping(false)
       setMessages((prev) => [
         ...prev,
-        { id: Date.now(), type: 'ai', text: '죄송합니다, 오류가 발생했습니다. 다시 시도해주세요.' },
+        { id: Date.now(), type: 'ai', text: `오류: ${err.message}` },
       ])
     }
   }
@@ -141,55 +138,45 @@ function App() {
     await callGemini(text.trim())
   }
 
-  // ── Voice recording ───────────────────────────────────────
-  const startListening = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus'
-        : 'audio/webm'
-      const recorder = new MediaRecorder(stream, { mimeType })
-      mediaRecorderRef.current = recorder
-      audioChunksRef.current = []
-
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data)
-      }
-
-      recorder.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop())
-        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
-
-        setIsAITyping(true)
-        try {
-          const transcript = await transcribeAudio(blob, STT_KEY)
-          if (!transcript) {
-            setIsAITyping(false)
-            return
-          }
-          setMessages((prev) => [...prev, { id: Date.now(), type: 'user', text: transcript }])
-          await callGemini(transcript)
-        } catch (err) {
-          console.error(err)
-          setIsAITyping(false)
-        }
-      }
-
-      recorder.start()
-      setIsListening(true)
-    } catch (err) {
-      console.error('Mic access error:', err)
-    }
-  }
-
-  const stopListening = () => {
-    mediaRecorderRef.current?.stop()
-    setIsListening(false)
-  }
-
+  // ── Web Speech API (STT) ──────────────────────────────────
   const handleMicClick = () => {
-    if (isListening) stopListening()
-    else startListening()
+    if (isListening) {
+      recognitionRef.current?.stop()
+      return
+    }
+
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SR) {
+      setMessages((prev) => [
+        ...prev,
+        { id: Date.now(), type: 'ai', text: 'Chrome 또는 Edge 브라우저에서 음성 기능을 사용할 수 있습니다.' },
+      ])
+      return
+    }
+
+    const rec = new SR()
+    rec.lang = 'ko-KR'
+    rec.interimResults = false
+    rec.maxAlternatives = 1
+    recognitionRef.current = rec
+
+    rec.onstart = () => setIsListening(true)
+
+    rec.onresult = async (e) => {
+      const transcript = e.results[0][0].transcript
+      setIsListening(false)
+      setMessages((prev) => [...prev, { id: Date.now(), type: 'user', text: transcript }])
+      await callGemini(transcript)
+    }
+
+    rec.onerror = (e) => {
+      console.error('STT error:', e.error)
+      setIsListening(false)
+    }
+
+    rec.onend = () => setIsListening(false)
+
+    rec.start()
   }
 
   const hasConversation = messages.length > 0
@@ -232,7 +219,6 @@ function App() {
       <div className="absolute left-0 right-0 top-[79px] bottom-[121px] flex justify-center">
         <div className="w-[1000px] h-full flex flex-col">
 
-          {/* Messages / Idle */}
           <div className="flex-1 overflow-hidden relative">
             <AnimatePresence mode="wait">
               {!hasConversation ? (
@@ -245,7 +231,6 @@ function App() {
                   className="absolute inset-0 flex flex-col items-center justify-center gap-[40px]"
                 >
                   <AIOrb size={160} pulse />
-
                   <div className="text-center">
                     <p className="text-[32px] font-semibold text-[#131417] leading-[44px]">
                       안녕하세요! 무엇을 도와드릴까요?
@@ -254,7 +239,6 @@ function App() {
                       아래 제안을 선택하거나 마이크를 눌러 말씀해주세요
                     </p>
                   </div>
-
                   <div className="flex flex-wrap justify-center gap-[14px]">
                     {SUGGESTIONS.map((s, i) => (
                       <motion.button
@@ -345,7 +329,6 @@ function App() {
                 boxShadow: '0px 6px 20px rgba(0,0,0,0.09)',
               }}
             >
-              {/* Mic */}
               <motion.button
                 whileTap={{ scale: 0.88 }}
                 onClick={handleMicClick}
@@ -358,16 +341,11 @@ function App() {
                     : '0px 4px 12px rgba(0,122,255,0.35)',
                 }}
               >
-                {isListening ? (
-                  <MicOff size={22} className="text-white" />
-                ) : (
-                  <Mic size={22} className="text-white" />
-                )}
+                {isListening ? <MicOff size={22} className="text-white" /> : <Mic size={22} className="text-white" />}
               </motion.button>
 
               <div className="w-[1.5px] h-[34px] bg-[rgba(19,20,23,0.09)] shrink-0" />
 
-              {/* Input / Wave */}
               <div className="flex-1 flex items-center">
                 <AnimatePresence mode="wait">
                   {isListening ? (
@@ -398,19 +376,15 @@ function App() {
                 </AnimatePresence>
               </div>
 
-              {/* Send */}
               <AnimatePresence>
-                {(inputText.trim() || isListening) && (
+                {inputText.trim() && !isListening && (
                   <motion.button
                     initial={{ scale: 0, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
                     exit={{ scale: 0, opacity: 0 }}
                     transition={{ duration: 0.18 }}
                     whileTap={{ scale: 0.88 }}
-                    onClick={() => {
-                      if (isListening) stopListening()
-                      else sendMessage(inputText)
-                    }}
+                    onClick={() => sendMessage(inputText)}
                     className="w-[54px] h-[54px] rounded-full bg-[#007AFF] flex items-center justify-center shrink-0"
                     style={{ boxShadow: '0px 4px 12px rgba(0,122,255,0.35)' }}
                   >
@@ -431,7 +405,6 @@ function App() {
           borderTop: '1px solid rgba(19,20,23,0.06)',
         }}
       >
-        {/* Climate */}
         <div className="flex items-center gap-[18px]">
           <motion.button whileTap={{ scale: 0.92 }} className="w-[73px] h-[73px] rounded-[21px] flex items-center justify-center">
             <img src={iconHome} alt="" className="w-[36px] h-[36px]" />
@@ -444,11 +417,9 @@ function App() {
             <img src={iconChevronDown} alt="" className="w-[30px] h-[30px]" />
           </motion.button>
           <div className="flex flex-col items-center px-[12px]">
-            <span
-              className={`text-[36px] font-semibold leading-[49px] transition-colors duration-300 ${
-                isAutoClimate ? 'text-[#a0a0a5]' : temperature <= 22 ? 'text-[#4A90D9]' : 'text-[#E85D5D]'
-              }`}
-            >
+            <span className={`text-[36px] font-semibold leading-[49px] transition-colors duration-300 ${
+              isAutoClimate ? 'text-[#a0a0a5]' : temperature <= 22 ? 'text-[#4A90D9]' : 'text-[#E85D5D]'
+            }`}>
               {temperature}.0
             </span>
             <button onClick={() => setIsAutoClimate(true)} className="flex items-center gap-[6px] hover:opacity-70 transition-opacity">
@@ -481,7 +452,6 @@ function App() {
           </motion.button>
         </div>
 
-        {/* App Icons */}
         <div className="flex items-center gap-[18px]">
           {APP_ICONS.map((item) => (
             <motion.button
@@ -498,7 +468,6 @@ function App() {
           ))}
         </div>
 
-        {/* Right */}
         <div className="flex items-center gap-[18px]">
           <motion.button
             whileTap={{ scale: 0.92 }}
