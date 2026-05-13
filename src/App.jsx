@@ -20,9 +20,11 @@ import iconMenu from '../assets/icons/Icon-13.svg'
 import imgBriefing from '../assets/images/image 28.png'
 
 import { transcribeAudio } from './services/stt'
-import { getGeminiResponse, playAudioBase64 } from './services/gemini'
+import { getGeminiResponse } from './services/gemini'
+import { speakText } from './services/tts'
 
 const STT_KEY = import.meta.env.VITE_GOOGLE_STT_API_KEY
+const TTS_KEY = import.meta.env.VITE_GOOGLE_TTS_API_KEY
 
 const SUGGESTIONS = [
   '목적지로 안내해줘',
@@ -116,11 +118,11 @@ function App() {
   const callGemini = async (text) => {
     setIsAITyping(true)
     try {
-      const { text: aiText, audioBase64, audioMimeType } = await getGeminiResponse(text)
+      const aiText = await getGeminiResponse(text)
       setIsAITyping(false)
-      const displayText = aiText || '(음성으로 응답했습니다)'
+      const displayText = aiText || '(응답을 받지 못했습니다)'
       setMessages((prev) => [...prev, { id: Date.now(), type: 'ai', text: displayText }])
-      if (audioBase64) playAudioBase64(audioBase64, audioMimeType)
+      if (aiText && TTS_KEY) speakText(aiText, TTS_KEY).catch(console.error)
     } catch (err) {
       console.error(err)
       setIsAITyping(false)
