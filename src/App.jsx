@@ -19,6 +19,12 @@ import iconTruck from '../assets/icons/Icon-10.svg'
 import iconMenu from '../assets/icons/Icon-13.svg'
 import imgBriefing from '../assets/images/image 28.png'
 
+import { transcribeAudio } from './services/stt'
+import { getGeminiResponse, playAudioBase64 } from './services/gemini'
+
+const STT_KEY = import.meta.env.VITE_GOOGLE_STT_API_KEY
+const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY
+
 const SUGGESTIONS = [
   '목적지로 안내해줘',
   '신나는 음악 틀어줘',
@@ -27,19 +33,7 @@ const SUGGESTIONS = [
   '전화 연결해줘',
 ]
 
-const getAIResponse = (text) => {
-  if (text.includes('음악') || text.includes('노래'))
-    return '음악을 재생할게요! 어떤 장르나 아티스트를 원하시나요?'
-  if (text.includes('목적지') || text.includes('안내') || text.includes('내비'))
-    return '네비게이션을 시작할게요. 목적지를 말씀해주세요.'
-  if (text.includes('날씨'))
-    return '현재 외부 온도는 24°C이며 맑은 날씨입니다. 오후에는 구름이 조금 낄 수 있어요.'
-  if (text.includes('전화') || text.includes('연결'))
-    return '전화 앱을 열게요. 누구에게 연락하시겠어요?'
-  if (text.includes('일정') || text.includes('캘린더'))
-    return '오늘 일정을 확인할게요. 오후 3시에 팀 미팅이 예정되어 있습니다.'
-  return '알겠습니다, 편하게 계세도 되고요. 혹시 나중에라도 궁금한 거나 대화하고 싶으시면 언제든 말씀해주세요!'
-}
+// ── Sub-components ─────────────────────────────────────────
 
 function AIOrb({ size = 160, pulse = false }) {
   return (
@@ -90,6 +84,8 @@ function ListeningWave() {
   )
 }
 
+// ── Main App ───────────────────────────────────────────────
+
 function App() {
   const [messages, setMessages] = useState([])
   const [inputText, setInputText] = useState('')
@@ -100,7 +96,10 @@ function App() {
   const [currentTime, setCurrentTime] = useState(new Date())
   const [activeApp, setActiveApp] = useState(null)
   const [isBriefingOpen, setIsBriefingOpen] = useState(false)
+
   const messagesEndRef = useRef(null)
+  const mediaRecorderRef = useRef(null)
+  const audioChunksRef = useRef([])
 
   const formatTime = (date) =>
     date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
@@ -114,19 +113,82 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isAITyping])
 
-  const sendMessage = (text) => {
-    if (!text.trim()) return
-    setMessages((prev) => [...prev, { id: Date.now(), type: 'user', text: text.trim() }])
-    setInputText('')
-    setIsListening(false)
+  // ── Gemini call (shared by voice and text paths) ──────────
+  const callGemini = async (text) => {
     setIsAITyping(true)
-    setTimeout(() => {
+    try {
+      const { text: aiText, audioBase64, audioMimeType } = await getGeminiResponse(text, GEMINI_KEY)
+      setIsAITyping(false)
+      const displayText = aiText || '(음성으로 응답했습니다)'
+      setMessages((prev) => [...prev, { id: Date.now(), type: 'ai', text: displayText }])
+      if (audioBase64) playAudioBase64(audioBase64, audioMimeType)
+    } catch (err) {
+      console.error(err)
       setIsAITyping(false)
       setMessages((prev) => [
         ...prev,
-        { id: Date.now() + 1, type: 'ai', text: getAIResponse(text) },
+        { id: Date.now(), type: 'ai', text: '죄송합니다, 오류가 발생했습니다. 다시 시도해주세요.' },
       ])
-    }, 950)
+    }
+  }
+
+  // ── Text send ─────────────────────────────────────────────
+  const sendMessage = async (text) => {
+    if (!text.trim()) return
+    setMessages((prev) => [...prev, { id: Date.now(), type: 'user', text: text.trim() }])
+    setInputText('')
+    await callGemini(text.trim())
+  }
+
+  // ── Voice recording ───────────────────────────────────────
+  const startListening = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : 'audio/webm'
+      const recorder = new MediaRecorder(stream, { mimeType })
+      mediaRecorderRef.current = recorder
+      audioChunksRef.current = []
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data)
+      }
+
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop())
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+
+        setIsAITyping(true)
+        try {
+          const transcript = await transcribeAudio(blob, STT_KEY)
+          if (!transcript) {
+            setIsAITyping(false)
+            return
+          }
+          setMessages((prev) => [...prev, { id: Date.now(), type: 'user', text: transcript }])
+          await callGemini(transcript)
+        } catch (err) {
+          console.error(err)
+          setIsAITyping(false)
+        }
+      }
+
+      recorder.start()
+      setIsListening(true)
+    } catch (err) {
+      console.error('Mic access error:', err)
+    }
+  }
+
+  const stopListening = () => {
+    mediaRecorderRef.current?.stop()
+    setIsListening(false)
+  }
+
+  const handleMicClick = () => {
+    if (isListening) stopListening()
+    else startListening()
   }
 
   const hasConversation = messages.length > 0
@@ -173,7 +235,6 @@ function App() {
           <div className="flex-1 overflow-hidden relative">
             <AnimatePresence mode="wait">
               {!hasConversation ? (
-                /* Welcome / Idle */
                 <motion.div
                   key="idle"
                   initial={{ opacity: 0, y: 24 }}
@@ -189,7 +250,7 @@ function App() {
                       안녕하세요! 무엇을 도와드릴까요?
                     </p>
                     <p className="text-[20px] text-[#99a1af] mt-[10px]">
-                      아래 제안을 선택하거나 직접 말씀해주세요
+                      아래 제안을 선택하거나 마이크를 눌러 말씀해주세요
                     </p>
                   </div>
 
@@ -212,7 +273,6 @@ function App() {
                   </div>
                 </motion.div>
               ) : (
-                /* Chat messages */
                 <motion.div
                   key="chat"
                   initial={{ opacity: 0 }}
@@ -250,7 +310,6 @@ function App() {
                     </motion.div>
                   ))}
 
-                  {/* Typing indicator */}
                   <AnimatePresence>
                     {isAITyping && (
                       <motion.div
@@ -285,10 +344,10 @@ function App() {
                 boxShadow: '0px 6px 20px rgba(0,0,0,0.09)',
               }}
             >
-              {/* Mic button */}
+              {/* Mic */}
               <motion.button
                 whileTap={{ scale: 0.88 }}
-                onClick={() => setIsListening((v) => !v)}
+                onClick={handleMicClick}
                 className={`w-[54px] h-[54px] rounded-full flex items-center justify-center shrink-0 transition-colors duration-300 ${
                   isListening ? 'bg-[#FF3B30]' : 'bg-[#007AFF]'
                 }`}
@@ -307,7 +366,7 @@ function App() {
 
               <div className="w-[1.5px] h-[34px] bg-[rgba(19,20,23,0.09)] shrink-0" />
 
-              {/* Text input or wave */}
+              {/* Input / Wave */}
               <div className="flex-1 flex items-center">
                 <AnimatePresence mode="wait">
                   {isListening ? (
@@ -338,7 +397,7 @@ function App() {
                 </AnimatePresence>
               </div>
 
-              {/* Send button */}
+              {/* Send */}
               <AnimatePresence>
                 {(inputText.trim() || isListening) && (
                   <motion.button
@@ -348,12 +407,8 @@ function App() {
                     transition={{ duration: 0.18 }}
                     whileTap={{ scale: 0.88 }}
                     onClick={() => {
-                      if (isListening) {
-                        setIsListening(false)
-                        sendMessage('신나는 음악 틀어줘')
-                      } else {
-                        sendMessage(inputText)
-                      }
+                      if (isListening) stopListening()
+                      else sendMessage(inputText)
                     }}
                     className="w-[54px] h-[54px] rounded-full bg-[#007AFF] flex items-center justify-center shrink-0"
                     style={{ boxShadow: '0px 4px 12px rgba(0,122,255,0.35)' }}
@@ -377,13 +432,9 @@ function App() {
       >
         {/* Climate */}
         <div className="flex items-center gap-[18px]">
-          <motion.button
-            whileTap={{ scale: 0.92 }}
-            className="w-[73px] h-[73px] rounded-[21px] flex items-center justify-center"
-          >
+          <motion.button whileTap={{ scale: 0.92 }} className="w-[73px] h-[73px] rounded-[21px] flex items-center justify-center">
             <img src={iconHome} alt="" className="w-[36px] h-[36px]" />
           </motion.button>
-
           <motion.button
             whileTap={{ scale: 0.92 }}
             onClick={() => { setTemperature((v) => Math.max(17, v - 1)); setIsAutoClimate(false) }}
@@ -391,7 +442,6 @@ function App() {
           >
             <img src={iconChevronDown} alt="" className="w-[30px] h-[30px]" />
           </motion.button>
-
           <div className="flex flex-col items-center px-[12px]">
             <span
               className={`text-[36px] font-semibold leading-[49px] transition-colors duration-300 ${
@@ -400,10 +450,7 @@ function App() {
             >
               {temperature}.0
             </span>
-            <button
-              onClick={() => setIsAutoClimate(true)}
-              className="flex items-center gap-[6px] hover:opacity-70 transition-opacity"
-            >
+            <button onClick={() => setIsAutoClimate(true)} className="flex items-center gap-[6px] hover:opacity-70 transition-opacity">
               {isAutoClimate ? (
                 <img src={iconAC} alt="" className="w-[18px] h-[18px] opacity-60" />
               ) : temperature <= 22 ? (
@@ -411,16 +458,13 @@ function App() {
               ) : (
                 <Flame size={18} className="text-[#E85D5D]" />
               )}
-              <span
-                className={`text-[18px] leading-[24px] transition-colors duration-300 ${
-                  isAutoClimate ? 'text-[#99a1af]' : temperature <= 22 ? 'text-[#4A90D9]' : 'text-[#E85D5D]'
-                }`}
-              >
+              <span className={`text-[18px] leading-[24px] transition-colors duration-300 ${
+                isAutoClimate ? 'text-[#99a1af]' : temperature <= 22 ? 'text-[#4A90D9]' : 'text-[#E85D5D]'
+              }`}>
                 {isAutoClimate ? 'AUTO' : temperature <= 22 ? 'COOL' : 'HEAT'}
               </span>
             </button>
           </div>
-
           <motion.button
             whileTap={{ scale: 0.92 }}
             onClick={() => { setTemperature((v) => Math.min(29, v + 1)); setIsAutoClimate(false) }}
@@ -428,7 +472,6 @@ function App() {
           >
             <img src={iconChevronUp} alt="" className="w-[30px] h-[30px]" />
           </motion.button>
-
           <motion.button whileTap={{ scale: 0.92 }} className="w-[67px] h-[67px] rounded-[21px] flex items-center justify-center">
             <img src={iconCouch} alt="" className="w-[30px] h-[30px]" />
           </motion.button>
@@ -466,9 +509,7 @@ function App() {
             <div className="w-[61px] h-[57px]">
               <img src={imgBriefing} alt="" className="w-full h-full object-contain" />
             </div>
-            <span className="text-[12px] font-semibold text-[#a0a0a5] leading-[15px] mt-[3px]">
-              상황브리핑
-            </span>
+            <span className="text-[12px] font-semibold text-[#a0a0a5] leading-[15px] mt-[3px]">상황브리핑</span>
           </motion.button>
           <motion.button
             whileTap={{ scale: 0.92 }}
