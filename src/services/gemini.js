@@ -1,11 +1,11 @@
-const MODEL = 'gemini-2.5-flash'
+const MODEL = 'gemini-2.0-flash-lite'
 const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`
 
-const SYSTEM_PROMPT = `당신은 차량용 AI 어시스턴트입니다. 운전자와 탑승객을 돕는 역할을 합니다.
-- 답변은 2~3문장으로 간결하게 해주세요.
-- 친근하고 자연스러운 한국어를 사용하세요.
-- 네비게이션, 음악, 전화, 날씨, 일정 등 차량 관련 요청에 적극적으로 응답하세요.
-- 운전 중 안전을 항상 최우선으로 고려하세요.`
+const SYSTEM_PROMPT = `당신은 차량 내비게이션에 탑재된 AI 어시스턴트입니다.
+- 사용자가 말한 내용을 반복하지 말고 바로 본론만 답하세요.
+- 한 두 문장으로 최대한 짧게 답하세요.
+- 밝고 친절한 말투를 사용하세요.
+- 운전 중 상황임을 항상 고려하고 안전을 최우선으로 하세요.`
 
 const KEYS = (import.meta.env.VITE_GEMINI_API_KEYS ?? '')
   .split(',')
