@@ -1,4 +1,4 @@
-const MODEL = 'gemini-2.0-flash-lite'
+const MODEL = 'gemini-2.5-flash'
 const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`
 
 const SYSTEM_PROMPT = `당신은 차량 내비게이션에 탑재된 AI 어시스턴트입니다.
