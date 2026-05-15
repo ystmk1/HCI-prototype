@@ -19,7 +19,6 @@ import iconMenu from '../assets/icons/Icon-13.svg'
 import voiceIcon from '../assets/icons/voice.svg'
 
 // ── Image imports ───────────────────────────────────────────
-import imgAiTitle from '../assets/images/AI 에이전트에게 무엇이든 물어보세요.png'
 import imgBg40 from '../assets/images/image 40.png'
 
 // ── Service imports ─────────────────────────────────────────
@@ -32,8 +31,7 @@ const SUGGESTIONS = [
   '현재 경로 확인',
   '경로 변경',
   '추천옵션',
-  '추천',
-  '추천',
+  '현재 상황 브리핑',
 ]
 
 // ── Sub-components ─────────────────────────────────────────
@@ -80,6 +78,7 @@ function App() {
   const [inputText, setInputText] = useState('')
   const [isListening, setIsListening] = useState(false)
   const [isAITyping, setIsAITyping] = useState(false)
+  const [showCarStatus, setShowCarStatus] = useState(false)
   const [temperature, setTemperature] = useState(20)
   const [isAutoClimate, setIsAutoClimate] = useState(true)
   const [currentTime, setCurrentTime] = useState(new Date())
@@ -103,6 +102,7 @@ function App() {
   // ── Gemini + TTS ──────────────────────────────────────────
   const callGemini = async (text) => {
     setIsAITyping(true)
+    
     try {
       const aiText = await getGeminiResponse(text)
       setIsAITyping(false)
@@ -174,6 +174,7 @@ function App() {
   }
 
   const hasConversation = messages.length > 0
+  const showSplitLayout = hasConversation || !!activeApp
 
   const APP_ICONS = [
     { id: 'Navigation', icon: iconNav },
@@ -206,24 +207,34 @@ function App() {
         </div>
       </div>
 
-      {/* ── Main Content: Idle vs Chat ───────────────────────── */}
-      <AnimatePresence mode="wait">
-        {!hasConversation ? (
-          <motion.div
-            key="idle"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0, transition: { duration: 0.25 } }}
-            transition={{ duration: 0.4, ease: 'easeOut' }}
-          >
-            {/* Hero Title */}
+      {/* ── Main Content: Unified Responsive Layout ───────────── */}
+      <div className="layout-container" style={{ position: 'absolute', top: 104, left: 49, right: 51, height: 828, display: 'flex', gap: 11, zIndex: 10 }}>
+        
+        {/* Left Panel: Idle or Chat */}
+        <motion.div 
+          layout
+          className={`panel-main ${hasConversation ? 'chat-mode' : 'idle-mode'}`}
+          style={{ flex: 1, position: 'relative', borderRadius: 24, overflow: 'hidden', background: hasConversation ? 'white' : 'transparent', transition: 'background 0.3s' }}
+        >
+          <AnimatePresence mode="wait">
+            {!hasConversation ? (
+              <motion.div
+                key="idle"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0, transition: { duration: 0.2 } }}
+                transition={{ duration: 0.4 }}
+                style={{ position: 'absolute', inset: 0 }}
+              >
+                {/* Hero Title */}
             <motion.div
               className="hero-title"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.1, ease: 'easeOut' }}
             >
-              <img src={imgAiTitle} alt="AI 에이전트에게 무엇이든 물어보세요" />
+              <p>반갑습니다!</p>
+              <p>무엇을 도와드릴까요?</p>
             </motion.div>
 
             {/* Suggestion Chips */}
@@ -242,7 +253,7 @@ function App() {
               ))}
             </div>
 
-            {/* Voice Input Area */}
+            {/* Voice / Text Input Area */}
             <div className="voice-input-area">
               <div className="voice-input-bg" />
               <div className="voice-input-content">
@@ -258,22 +269,51 @@ function App() {
                     <span className="voice-listening-text">듣는 중...</span>
                   </div>
                 ) : (
-                  <span className="voice-placeholder">눌러서 말해보세요</span>
+                  <>
+                    <input
+                      type="text"
+                      className="voice-text-input"
+                      placeholder="무엇이든 물어보세요"
+                      value={inputText}
+                      onChange={(e) => setInputText(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && sendMessage(inputText)}
+                    />
+                    <button className="voice-send-btn" onClick={() => sendMessage(inputText)}>
+                      <Send size={34} color="#5c668d" strokeWidth={1.8} />
+                    </button>
+                  </>
                 )}
               </div>
             </div>
           </motion.div>
-        ) : (
-          <motion.div
-            key="chat"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.3 }}
-            className="chat-container"
-          >
-            <div className="chat-inner">
-              {/* Chat Messages */}
-              <div className="chat-messages">
+            ) : (
+              <motion.div
+                key="chat"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.3 }}
+                className={`panel-chat ${showCarStatus ? 'has-popup' : ''}`}
+                style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}
+              >
+            <AnimatePresence>
+              {showCarStatus && (
+                <motion.div
+                  className="panel-popup"
+                  initial={{ x: -100, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  exit={{ x: -100, opacity: 0 }}
+                  transition={{ duration: 0.3, ease: 'easeOut' }}
+                >
+                  <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#a0a0a5', fontSize: '24px' }}>
+                    차량 상태 뷰
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Chat Messages */}
+            <div className="chat-messages">
                 {messages.map((msg) => (
                   <motion.div
                     key={msg.id}
@@ -282,14 +322,31 @@ function App() {
                     transition={{ duration: 0.28 }}
                     className={`message-row ${msg.type === 'user' ? 'user' : ''}`}
                   >
-                    {msg.type === 'ai' && (
-                      <div style={{ marginBottom: 2 }}>
-                        <AIOrb size={42} />
+                    {msg.type === 'ai-card' ? (
+                      <div className="ai-option-card">
+                        <div className="ai-option-title">{msg.text}</div>
+                        <div className="ai-option-actions">
+                          {msg.options?.map((opt, i) => (
+                            <button
+                              key={i}
+                              className={`ai-option-btn ${msg.selectedOption === opt ? 'selected' : ''}`}
+                              onClick={() => {
+                                // Add selection logic here if needed
+                                sendMessage(opt)
+                              }}
+                            >
+                              {opt}
+                            </button>
+                          ))}
+                        </div>
                       </div>
+                    ) : (
+                      <>
+                        <div className={`message-bubble ${msg.type}`}>
+                          {msg.text}
+                        </div>
+                      </>
                     )}
-                    <div className={`message-bubble ${msg.type}`}>
-                      {msg.text}
-                    </div>
                   </motion.div>
                 ))}
 
@@ -301,8 +358,7 @@ function App() {
                       exit={{ opacity: 0 }}
                       className="message-row"
                     >
-                      <AIOrb size={42} />
-                      <div className="message-bubble ai">
+                      <div className="message-bubble ai" style={{ padding: '20px 32px' }}>
                         <TypingDots />
                       </div>
                     </motion.div>
@@ -318,16 +374,13 @@ function App() {
                   <motion.button
                     whileTap={{ scale: 0.88 }}
                     onClick={handleMicClick}
-                    className={`chat-mic-btn ${isListening ? 'active' : 'idle'}`}
+                    className="voice-btn"
+                    style={{ width: 'auto', height: 'auto', background: 'transparent' }}
                   >
-                    {isListening
-                      ? <MicOff size={22} color="white" />
-                      : <Mic size={22} color="white" />}
+                    <img src={voiceIcon} alt="Mic" style={{ width: 44, height: 44, opacity: isListening ? 1 : 0.4 }} />
                   </motion.button>
 
-                  <div className="chat-divider" />
-
-                  <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
+                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', marginLeft: 10 }}>
                     <AnimatePresence mode="wait">
                       {isListening ? (
                         <motion.div
@@ -338,7 +391,7 @@ function App() {
                           style={{ display: 'flex', alignItems: 'center', gap: 12 }}
                         >
                           <ListeningWave />
-                          <span style={{ fontSize: 20, color: '#007AFF', fontWeight: 500 }}>듣는 중...</span>
+                          <span style={{ fontSize: 32, color: '#4aa8ff', fontWeight: 500, letterSpacing: -1.5 }}>듣는 중...</span>
                         </motion.div>
                       ) : (
                         <motion.input
@@ -350,7 +403,7 @@ function App() {
                           value={inputText}
                           onChange={(e) => setInputText(e.target.value)}
                           onKeyDown={(e) => e.key === 'Enter' && sendMessage(inputText)}
-                          placeholder="무엇이든 물어보세요..."
+                          placeholder="무엇이든 물어보세요"
                           className="chat-text-input"
                         />
                       )}
@@ -368,22 +421,60 @@ function App() {
                         onClick={() => sendMessage(inputText)}
                         className="chat-send-btn"
                       >
-                        <Send size={20} color="white" style={{ marginLeft: 2 }} />
+                        <Send size={44} color="#5c668d" strokeWidth={1.5} />
                       </motion.button>
                     )}
                   </AnimatePresence>
                 </div>
               </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
+
+        {/* Right Panel: App View */}
+        <AnimatePresence>
+          {activeApp && (
+            <motion.div
+              initial={{ opacity: 0, width: 0, marginLeft: 0 }}
+              animate={{ opacity: 1, width: 482, marginLeft: 11 }}
+              exit={{ opacity: 0, width: 0, marginLeft: 0 }}
+              transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+              style={{ overflow: 'hidden', flexShrink: 0, borderRadius: 24 }}
+            >
+              <div className="panel-app" style={{ width: 482, height: '100%', borderRadius: 24, background: '#d9d9d9' }}>
+                <motion.div 
+                  key={activeApp}
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  className="app-view-container"
+                  style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#eceaea' }}
+                >
+                  <img src={APP_ICONS.find(i => i.id === activeApp)?.icon} alt={activeApp} style={{ width: 80, height: 80, opacity: 0.5, filter: 'grayscale(100%)' }} />
+                  <div style={{ color: '#888', fontSize: '24px', marginTop: 16, fontWeight: 500 }}>
+                    {activeApp} 실행 중
+                  </div>
+                </motion.div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
 
       {/* ── Bottom App Bar ────────────────────────────────────── */}
       <div className="bottom-bar">
         {/* Left: Home, Climate Controls */}
         <div className="bottom-left">
-          <motion.button whileTap={{ scale: 0.92 }} className="btn-home">
+          <motion.button 
+            whileTap={{ scale: 0.92 }} 
+            className="btn-home"
+            onClick={() => {
+              setMessages([])
+              setActiveApp(null)
+              setShowCarStatus(false)
+            }}
+          >
             <img src={iconHome} alt="Home" />
           </motion.button>
 
