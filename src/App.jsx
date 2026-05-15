@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Flame, Snowflake, Mic, MicOff, Send } from 'lucide-react'
 
+// ── Icon imports ────────────────────────────────────────────
 import iconSun from '../assets/icons/Icon-15.svg'
 import iconWifi from '../assets/icons/Icon-14.svg'
 import iconBattery from '../assets/icons/Icon-12.svg'
@@ -14,22 +15,25 @@ import iconPhone from '../assets/icons/Icon-5.svg'
 import iconMusic from '../assets/icons/Icon-2.svg'
 import iconMail from '../assets/icons/Icon-1.svg'
 import iconCalendar from '../assets/icons/Icon.svg'
-import iconCouch from '../assets/icons/Icon-9.svg'
-import iconTruck from '../assets/icons/Icon-10.svg'
 import iconMenu from '../assets/icons/Icon-13.svg'
-import imgBriefing from '../assets/images/image 28.png'
+import voiceIcon from '../assets/icons/voice.svg'
 
+// ── Image imports ───────────────────────────────────────────
+import imgAiTitle from '../assets/images/AI 에이전트에게 무엇이든 물어보세요.png'
+import imgBg40 from '../assets/images/image 40.png'
+
+// ── Service imports ─────────────────────────────────────────
 import { getGeminiResponse } from './services/gemini'
 import { speakText } from './services/tts'
 
 const TTS_KEY = import.meta.env.VITE_GOOGLE_TTS_API_KEY
 
 const SUGGESTIONS = [
-  '목적지로 안내해줘',
-  '신나는 음악 틀어줘',
-  '오늘 일정 알려줘',
-  '현재 날씨 어때?',
-  '전화 연결해줘',
+  '현재 경로 확인',
+  '경로 변경',
+  '추천옵션',
+  '추천',
+  '추천',
 ]
 
 // ── Sub-components ─────────────────────────────────────────
@@ -39,13 +43,10 @@ function AIOrb({ size = 160, pulse = false }) {
     <motion.div
       animate={pulse ? { scale: [1, 1.05, 1], opacity: [0.85, 1, 0.85] } : {}}
       transition={pulse ? { repeat: Infinity, duration: 3.5, ease: 'easeInOut' } : {}}
+      className="ai-orb"
       style={{
         width: size,
         height: size,
-        borderRadius: '50%',
-        flexShrink: 0,
-        background:
-          'radial-gradient(circle at 38% 30%, #f0f8ff 0%, #b8daf5 25%, #6ab0e8 55%, #3580c9 80%, #1a5fa8 100%)',
         boxShadow: `0 ${Math.round(size / 8)}px ${Math.round(size / 2)}px rgba(91,163,217,0.32)`,
       }}
     />
@@ -54,30 +55,19 @@ function AIOrb({ size = 160, pulse = false }) {
 
 function TypingDots() {
   return (
-    <div className="flex gap-[6px] items-center h-[22px]">
-      {[0, 1, 2].map((i) => (
-        <motion.div
-          key={i}
-          className="w-[9px] h-[9px] rounded-full bg-[#c0c8d4]"
-          animate={{ y: [0, -5, 0] }}
-          transition={{ duration: 0.55, delay: i * 0.14, repeat: Infinity, ease: 'easeInOut' }}
-        />
-      ))}
+    <div className="typing-dots">
+      <div className="typing-dot" />
+      <div className="typing-dot" />
+      <div className="typing-dot" />
     </div>
   )
 }
 
 function ListeningWave() {
   return (
-    <div className="flex items-center gap-[4px] h-[28px]">
-      {[0.6, 1, 0.75, 1.2, 0.5, 0.9, 1.1, 0.65].map((h, i) => (
-        <motion.div
-          key={i}
-          className="w-[4px] rounded-full bg-[#007AFF]"
-          animate={{ scaleY: [h * 0.4, h, h * 0.4] }}
-          transition={{ duration: 0.45 + i * 0.07, repeat: Infinity, ease: 'easeInOut', delay: i * 0.06 }}
-          style={{ height: 28, originY: 0.5 }}
-        />
+    <div className="listening-wave">
+      {Array.from({ length: 8 }).map((_, i) => (
+        <div key={i} className="wave-bar" />
       ))}
     </div>
   )
@@ -94,7 +84,6 @@ function App() {
   const [isAutoClimate, setIsAutoClimate] = useState(true)
   const [currentTime, setCurrentTime] = useState(new Date())
   const [activeApp, setActiveApp] = useState(null)
-  const [isBriefingOpen, setIsBriefingOpen] = useState(false)
 
   const messagesEndRef = useRef(null)
   const recognitionRef = useRef(null)
@@ -179,6 +168,11 @@ function App() {
     rec.start()
   }
 
+  // ── Handle voice mic click on idle screen ─────────────────
+  const handleVoiceMicClick = () => {
+    handleMicClick()
+  }
+
   const hasConversation = messages.length > 0
 
   const APP_ICONS = [
@@ -190,302 +184,267 @@ function App() {
   ]
 
   return (
-    <div
-      className="relative w-[1920px] h-[1080px] overflow-hidden rounded-[32px]"
-      style={{ fontFamily: "'Pretendard', sans-serif", background: '#f2f4f7' }}
-    >
-      {/* ── Top Bar ─────────────────────────────────────────── */}
-      <div
-        className="absolute left-0 top-0 w-full h-[79px] bg-white flex items-center justify-between px-[49px] z-30"
-        style={{ borderBottom: '1px solid rgba(19,20,23,0.06)' }}
-      >
-        <div className="flex items-center gap-[24px]">
-          <span className="text-[21px] text-black leading-[30px] tabular-nums">
-            {formatTime(currentTime)}
-          </span>
-          <div className="flex items-center gap-[6px]">
-            <img src={iconSun} alt="" className="w-[24px] h-[24px]" />
-            <span className="text-[21px] text-black leading-[30px]">24°C</span>
+    <div className="screen">
+      {/* ── Rotated Background Image ─────────────────────────── */}
+      <div className="bg-rotated-image">
+        <img src={imgBg40} alt="" />
+      </div>
+
+      {/* ── Top Status Bar ───────────────────────────────────── */}
+      <div className="top-bar">
+        <div className="top-bar-left">
+          <span className="time">{formatTime(currentTime)}</span>
+          <div className="weather">
+            <img src={iconSun} alt="" />
+            <span>24°C</span>
           </div>
         </div>
-        <div className="flex items-center gap-[18px]">
-          <img src={iconWifi} alt="" className="w-[24px] h-[24px]" />
-          <img src={iconBattery} alt="" className="w-[24px] h-[24px]" />
-          <span className="text-[21px] text-black leading-[30px]">100%</span>
+        <div className="top-bar-right">
+          <img src={iconWifi} alt="" />
+          <img src={iconBattery} alt="" />
+          <span className="battery-text">100%</span>
         </div>
       </div>
 
-      {/* ── Main Chat Area ───────────────────────────────────── */}
-      <div className="absolute left-0 right-0 top-[79px] bottom-[121px] flex justify-center">
-        <div className="w-[1000px] h-full flex flex-col">
+      {/* ── Main Content: Idle vs Chat ───────────────────────── */}
+      <AnimatePresence mode="wait">
+        {!hasConversation ? (
+          <motion.div
+            key="idle"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, transition: { duration: 0.25 } }}
+            transition={{ duration: 0.4, ease: 'easeOut' }}
+          >
+            {/* Hero Title */}
+            <motion.div
+              className="hero-title"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.1, ease: 'easeOut' }}
+            >
+              <img src={imgAiTitle} alt="AI 에이전트에게 무엇이든 물어보세요" />
+            </motion.div>
 
-          <div className="flex-1 overflow-hidden relative">
-            <AnimatePresence mode="wait">
-              {!hasConversation ? (
-                <motion.div
-                  key="idle"
-                  initial={{ opacity: 0, y: 24 }}
+            {/* Suggestion Chips */}
+            <div className="suggestion-chips">
+              {SUGGESTIONS.map((s, i) => (
+                <motion.button
+                  key={i}
+                  className="suggestion-chip"
+                  initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -16 }}
-                  transition={{ duration: 0.4, ease: 'easeOut' }}
-                  className="absolute inset-0 flex flex-col items-center justify-center gap-[40px]"
+                  transition={{ delay: 0.3 + i * 0.08, duration: 0.35, ease: 'easeOut' }}
+                  onClick={() => sendMessage(s)}
                 >
-                  <AIOrb size={160} pulse />
-                  <div className="text-center">
-                    <p className="text-[32px] font-semibold text-[#131417] leading-[44px]">
-                      안녕하세요! 무엇을 도와드릴까요?
-                    </p>
-                    <p className="text-[20px] text-[#99a1af] mt-[10px]">
-                      아래 제안을 선택하거나 마이크를 눌러 말씀해주세요
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap justify-center gap-[14px]">
-                    {SUGGESTIONS.map((s, i) => (
-                      <motion.button
-                        key={i}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.12 + i * 0.08 }}
-                        whileHover={{ scale: 1.04, y: -2 }}
-                        whileTap={{ scale: 0.96 }}
-                        onClick={() => sendMessage(s)}
-                        className="px-[28px] py-[15px] rounded-full bg-white border border-[rgba(19,20,23,0.1)] text-[19px] text-[#131417] hover:border-[#007AFF] hover:text-[#007AFF] transition-all duration-200 cursor-pointer"
-                        style={{ boxShadow: '0px 4px 14px rgba(0,0,0,0.07)' }}
-                      >
-                        {s}
-                      </motion.button>
-                    ))}
-                  </div>
-                </motion.div>
-              ) : (
-                <motion.div
-                  key="chat"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="absolute inset-0 overflow-y-auto hide-scrollbar py-[32px] flex flex-col gap-[18px]"
+                  <span>{s}</span>
+                </motion.button>
+              ))}
+            </div>
+
+            {/* Voice Input Area */}
+            <div className="voice-input-area">
+              <div className="voice-input-bg" />
+              <div className="voice-input-content">
+                <button
+                  className={`voice-btn ${isListening ? 'listening' : ''}`}
+                  onClick={handleVoiceMicClick}
                 >
-                  {messages.map((msg) => (
+                  <img src={voiceIcon} alt="음성 입력" />
+                </button>
+                {isListening ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                    <ListeningWave />
+                    <span className="voice-listening-text">듣는 중...</span>
+                  </div>
+                ) : (
+                  <span className="voice-placeholder">눌러서 말해보세요</span>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        ) : (
+          <motion.div
+            key="chat"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.3 }}
+            className="chat-container"
+          >
+            <div className="chat-inner">
+              {/* Chat Messages */}
+              <div className="chat-messages">
+                {messages.map((msg) => (
+                  <motion.div
+                    key={msg.id}
+                    initial={{ opacity: 0, y: 14 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.28 }}
+                    className={`message-row ${msg.type === 'user' ? 'user' : ''}`}
+                  >
+                    {msg.type === 'ai' && (
+                      <div style={{ marginBottom: 2 }}>
+                        <AIOrb size={42} />
+                      </div>
+                    )}
+                    <div className={`message-bubble ${msg.type}`}>
+                      {msg.text}
+                    </div>
+                  </motion.div>
+                ))}
+
+                <AnimatePresence>
+                  {isAITyping && (
                     <motion.div
-                      key={msg.id}
-                      initial={{ opacity: 0, y: 14 }}
+                      initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.28 }}
-                      className={`flex items-end gap-[14px] ${msg.type === 'user' ? 'flex-row-reverse' : ''}`}
+                      exit={{ opacity: 0 }}
+                      className="message-row"
                     >
-                      {msg.type === 'ai' && (
-                        <div className="mb-[2px]">
-                          <AIOrb size={42} />
-                        </div>
-                      )}
-                      <div
-                        className={`max-w-[580px] px-[24px] py-[16px] text-[20px] leading-[32px] ${
-                          msg.type === 'user'
-                            ? 'bg-[#007AFF] text-white rounded-[22px] rounded-br-[5px]'
-                            : 'bg-white text-[#131417] rounded-[22px] rounded-bl-[5px] border border-[rgba(19,20,23,0.07)]'
-                        }`}
-                        style={{
-                          boxShadow:
-                            msg.type === 'user'
-                              ? '0px 4px 14px rgba(0,122,255,0.25)'
-                              : '0px 3px 12px rgba(0,0,0,0.07)',
-                        }}
-                      >
-                        {msg.text}
+                      <AIOrb size={42} />
+                      <div className="message-bubble ai">
+                        <TypingDots />
                       </div>
                     </motion.div>
-                  ))}
-
-                  <AnimatePresence>
-                    {isAITyping && (
-                      <motion.div
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0 }}
-                        className="flex items-end gap-[14px]"
-                      >
-                        <AIOrb size={42} />
-                        <div
-                          className="bg-white rounded-[22px] rounded-bl-[5px] px-[24px] py-[16px] border border-[rgba(19,20,23,0.07)]"
-                          style={{ boxShadow: '0px 3px 12px rgba(0,0,0,0.07)' }}
-                        >
-                          <TypingDots />
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-
-                  <div ref={messagesEndRef} />
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-
-          {/* Input Bar */}
-          <div className="py-[22px] shrink-0">
-            <div
-              className="flex items-center gap-[16px] bg-white rounded-[24px] px-[22px] py-[13px]"
-              style={{
-                border: '1.5px solid rgba(19,20,23,0.1)',
-                boxShadow: '0px 6px 20px rgba(0,0,0,0.09)',
-              }}
-            >
-              <motion.button
-                whileTap={{ scale: 0.88 }}
-                onClick={handleMicClick}
-                className={`w-[54px] h-[54px] rounded-full flex items-center justify-center shrink-0 transition-colors duration-300 ${
-                  isListening ? 'bg-[#FF3B30]' : 'bg-[#007AFF]'
-                }`}
-                style={{
-                  boxShadow: isListening
-                    ? '0 0 0 8px rgba(255,59,48,0.14), 0 4px 12px rgba(255,59,48,0.4)'
-                    : '0px 4px 12px rgba(0,122,255,0.35)',
-                }}
-              >
-                {isListening ? <MicOff size={22} className="text-white" /> : <Mic size={22} className="text-white" />}
-              </motion.button>
-
-              <div className="w-[1.5px] h-[34px] bg-[rgba(19,20,23,0.09)] shrink-0" />
-
-              <div className="flex-1 flex items-center">
-                <AnimatePresence mode="wait">
-                  {isListening ? (
-                    <motion.div
-                      key="wave"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      className="flex items-center gap-[12px]"
-                    >
-                      <ListeningWave />
-                      <span className="text-[20px] text-[#007AFF] font-medium">듣는 중...</span>
-                    </motion.div>
-                  ) : (
-                    <motion.input
-                      key="input"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      type="text"
-                      value={inputText}
-                      onChange={(e) => setInputText(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && sendMessage(inputText)}
-                      placeholder="무엇이든 물어보세요..."
-                      className="w-full bg-transparent text-[20px] text-[#131417] placeholder-[#c0c8d4] outline-none"
-                    />
                   )}
                 </AnimatePresence>
+
+                <div ref={messagesEndRef} />
               </div>
 
-              <AnimatePresence>
-                {inputText.trim() && !isListening && (
+              {/* Chat Input Bar */}
+              <div className="chat-input-bar">
+                <div className="chat-input-inner">
                   <motion.button
-                    initial={{ scale: 0, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    exit={{ scale: 0, opacity: 0 }}
-                    transition={{ duration: 0.18 }}
                     whileTap={{ scale: 0.88 }}
-                    onClick={() => sendMessage(inputText)}
-                    className="w-[54px] h-[54px] rounded-full bg-[#007AFF] flex items-center justify-center shrink-0"
-                    style={{ boxShadow: '0px 4px 12px rgba(0,122,255,0.35)' }}
+                    onClick={handleMicClick}
+                    className={`chat-mic-btn ${isListening ? 'active' : 'idle'}`}
                   >
-                    <Send size={20} className="text-white ml-[2px]" />
+                    {isListening
+                      ? <MicOff size={22} color="white" />
+                      : <Mic size={22} color="white" />}
                   </motion.button>
-                )}
-              </AnimatePresence>
-            </div>
-          </div>
-        </div>
-      </div>
 
-      {/* ── Bottom Bar ──────────────────────────────────────── */}
-      <div
-        className="absolute left-0 bottom-0 w-full h-[121px] flex items-center justify-between px-[49px] z-30"
-        style={{
-          background: 'linear-gradient(90deg, #fff 0%, #edeef2 100%)',
-          borderTop: '1px solid rgba(19,20,23,0.06)',
-        }}
-      >
-        <div className="flex items-center gap-[18px]">
-          <motion.button whileTap={{ scale: 0.92 }} className="w-[73px] h-[73px] rounded-[21px] flex items-center justify-center">
-            <img src={iconHome} alt="" className="w-[36px] h-[36px]" />
+                  <div className="chat-divider" />
+
+                  <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
+                    <AnimatePresence mode="wait">
+                      {isListening ? (
+                        <motion.div
+                          key="wave"
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
+                          style={{ display: 'flex', alignItems: 'center', gap: 12 }}
+                        >
+                          <ListeningWave />
+                          <span style={{ fontSize: 20, color: '#007AFF', fontWeight: 500 }}>듣는 중...</span>
+                        </motion.div>
+                      ) : (
+                        <motion.input
+                          key="input"
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
+                          type="text"
+                          value={inputText}
+                          onChange={(e) => setInputText(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && sendMessage(inputText)}
+                          placeholder="무엇이든 물어보세요..."
+                          className="chat-text-input"
+                        />
+                      )}
+                    </AnimatePresence>
+                  </div>
+
+                  <AnimatePresence>
+                    {inputText.trim() && !isListening && (
+                      <motion.button
+                        initial={{ scale: 0, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        exit={{ scale: 0, opacity: 0 }}
+                        transition={{ duration: 0.18 }}
+                        whileTap={{ scale: 0.88 }}
+                        onClick={() => sendMessage(inputText)}
+                        className="chat-send-btn"
+                      >
+                        <Send size={20} color="white" style={{ marginLeft: 2 }} />
+                      </motion.button>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Bottom App Bar ────────────────────────────────────── */}
+      <div className="bottom-bar">
+        {/* Left: Home, Climate Controls */}
+        <div className="bottom-left">
+          <motion.button whileTap={{ scale: 0.92 }} className="btn-home">
+            <img src={iconHome} alt="Home" />
           </motion.button>
+
           <motion.button
             whileTap={{ scale: 0.92 }}
+            className="btn-chevron"
             onClick={() => { setTemperature((v) => Math.max(17, v - 1)); setIsAutoClimate(false) }}
-            className="w-[55px] h-[55px] rounded-[21px] flex items-center justify-center"
           >
-            <img src={iconChevronDown} alt="" className="w-[30px] h-[30px]" />
+            <img src={iconChevronDown} alt="Temp down" />
           </motion.button>
-          <div className="flex flex-col items-center px-[12px]">
-            <span className={`text-[36px] font-semibold leading-[49px] transition-colors duration-300 ${
-              isAutoClimate ? 'text-[#a0a0a5]' : temperature <= 22 ? 'text-[#4A90D9]' : 'text-[#E85D5D]'
-            }`}>
+
+          <div className="climate-display">
+            <span className={`climate-temp ${!isAutoClimate ? (temperature <= 22 ? 'cool' : 'heat') : ''}`}>
               {temperature}.0
             </span>
-            <button onClick={() => setIsAutoClimate(true)} className="flex items-center gap-[6px] hover:opacity-70 transition-opacity">
+            <button
+              className="climate-mode"
+              onClick={() => setIsAutoClimate(true)}
+            >
               {isAutoClimate ? (
-                <img src={iconAC} alt="" className="w-[18px] h-[18px] opacity-60" />
+                <img src={iconAC} alt="" />
               ) : temperature <= 22 ? (
-                <Snowflake size={18} className="text-[#4A90D9]" />
+                <Snowflake size={18} color="#4A90D9" />
               ) : (
-                <Flame size={18} className="text-[#E85D5D]" />
+                <Flame size={18} color="#E85D5D" />
               )}
-              <span className={`text-[18px] leading-[24px] transition-colors duration-300 ${
-                isAutoClimate ? 'text-[#99a1af]' : temperature <= 22 ? 'text-[#4A90D9]' : 'text-[#E85D5D]'
-              }`}>
+              <span className={!isAutoClimate ? (temperature <= 22 ? 'cool' : 'heat') : ''}>
                 {isAutoClimate ? 'AUTO' : temperature <= 22 ? 'COOL' : 'HEAT'}
               </span>
             </button>
           </div>
+
           <motion.button
             whileTap={{ scale: 0.92 }}
+            className="btn-chevron"
             onClick={() => { setTemperature((v) => Math.min(29, v + 1)); setIsAutoClimate(false) }}
-            className="w-[55px] h-[55px] rounded-[21px] flex items-center justify-center"
           >
-            <img src={iconChevronUp} alt="" className="w-[30px] h-[30px]" />
+            <img src={iconChevronUp} alt="Temp up" />
           </motion.button>
-          <motion.button whileTap={{ scale: 0.92 }} className="w-[67px] h-[67px] rounded-[21px] flex items-center justify-center">
-            <img src={iconCouch} alt="" className="w-[30px] h-[30px]" />
-          </motion.button>
-          <motion.button whileTap={{ scale: 0.92 }} className="w-[67px] h-[67px] rounded-[21px] flex items-center justify-center">
-            <img src={iconTruck} alt="" className="w-[30px] h-[30px]" />
-          </motion.button>
+
+
         </div>
 
-        <div className="flex items-center gap-[18px]">
+        {/* Center: App Icons */}
+        <div className="bottom-center">
           {APP_ICONS.map((item) => (
             <motion.button
               key={item.id}
               whileTap={{ scale: 0.9 }}
               onClick={() => setActiveApp((v) => (v === item.id ? null : item.id))}
-              className={`w-[73px] h-[73px] border border-[rgba(19,20,23,0.2)] rounded-full flex items-center justify-center transition-colors ${
-                activeApp === item.id ? 'bg-white' : 'bg-[#f7f8fa]'
-              }`}
-              style={{ filter: 'drop-shadow(0px 6px 12px rgba(0,0,0,0.08))' }}
+              className={`app-icon-btn ${activeApp === item.id ? 'active' : ''}`}
             >
-              <img src={item.icon} alt={item.id} className="w-[30px] h-[30px]" />
+              <img src={item.icon} alt={item.id} />
             </motion.button>
           ))}
         </div>
 
-        <div className="flex items-center gap-[18px]">
-          <motion.button
-            whileTap={{ scale: 0.92 }}
-            onClick={() => setIsBriefingOpen((v) => !v)}
-            className={`flex flex-col items-center cursor-pointer transition-opacity ${
-              isBriefingOpen ? 'opacity-100' : 'opacity-70 hover:opacity-100'
-            }`}
-          >
-            <div className="w-[61px] h-[57px]">
-              <img src={imgBriefing} alt="" className="w-full h-full object-contain" />
-            </div>
-            <span className="text-[12px] font-semibold text-[#a0a0a5] leading-[15px] mt-[3px]">상황브리핑</span>
-          </motion.button>
-          <motion.button
-            whileTap={{ scale: 0.92 }}
-            className="w-[51px] h-[51px] rounded-[16px] flex items-center justify-center bg-[#f7f8fa] border border-[rgba(19,20,23,0.1)]"
-          >
-            <img src={iconMenu} alt="" className="w-[24px] h-[24px]" />
+        {/* Right: Menu */}
+        <div className="bottom-right">
+          <motion.button whileTap={{ scale: 0.92 }} className="btn-menu">
+            <img src={iconMenu} alt="Menu" />
           </motion.button>
         </div>
       </div>
