@@ -24,9 +24,34 @@ import imgCarHigh from '../assets/images/car_high.png'
 
 // ── Service imports ─────────────────────────────────────────
 import { getGeminiResponse } from './services/gemini'
-import { speakText } from './services/tts'
+import {
+  speakText,
+  DEFAULT_SPEAKING_RATE,
+  MIN_SPEAKING_RATE,
+  MAX_SPEAKING_RATE,
+  SPEAKING_RATE_STEP,
+} from './services/tts'
 
 const TTS_KEY = import.meta.env.VITE_GOOGLE_TTS_API_KEY
+
+// Detects spoken/typed commands to adjust TTS speed.
+// Returns { direction: 'faster' | 'slower' | 'reset', reply } or null.
+function detectSpeedCommand(text) {
+  const t = text.replace(/\s+/g, '')
+  const mentionsSpeech = /(말|목소리|음성|읽|속도|tts)/i.test(t)
+  if (/(보통|기본|원래|초기).*(속도|말|음성)|속도.*(초기화|리셋|기본)|기본속도/.test(t)) {
+    return { direction: 'reset', reply: '음성 속도를 기본으로 되돌렸습니다.' }
+  }
+  const faster = /(빠르게|빨리|빨라|빠른|빠르)/.test(t)
+  const slower = /(느리게|천천히|느려|느린|느리)/.test(t)
+  if (faster && (mentionsSpeech || /더/.test(t))) {
+    return { direction: 'faster', reply: '말하는 속도를 좀 더 빠르게 할게요.' }
+  }
+  if (slower && (mentionsSpeech || /더/.test(t))) {
+    return { direction: 'slower', reply: '말하는 속도를 좀 더 느리게 할게요.' }
+  }
+  return null
+}
 
 const SUGGESTIONS = [
   '현재 경로 확인',
@@ -90,6 +115,18 @@ function App() {
 
   const messagesEndRef = useRef(null)
   const recognitionRef = useRef(null)
+  const speakingRateRef = useRef(DEFAULT_SPEAKING_RATE)
+
+  const adjustSpeakingRate = (direction) => {
+    const current = speakingRateRef.current
+    let next = current
+    if (direction === 'faster') next = current + SPEAKING_RATE_STEP
+    else if (direction === 'slower') next = current - SPEAKING_RATE_STEP
+    else if (direction === 'reset') next = DEFAULT_SPEAKING_RATE
+    next = Math.min(MAX_SPEAKING_RATE, Math.max(MIN_SPEAKING_RATE, next))
+    speakingRateRef.current = next
+    return next
+  }
 
   const formatTime = (date) =>
     date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
@@ -194,7 +231,7 @@ function App() {
         return newMessages
       })
 
-      if (aiText && TTS_KEY) speakText(aiText, TTS_KEY).catch(console.error)
+      if (aiText && TTS_KEY) speakText(aiText, TTS_KEY, speakingRateRef.current).catch(console.error)
     } catch (err) {
       console.error('Gemini error:', err)
       setIsAITyping(false)
@@ -205,12 +242,24 @@ function App() {
     }
   }
 
+  // ── Handle TTS speed commands locally (bypass Gemini) ─────
+  const handleSpeedCommandIfAny = (text) => {
+    const cmd = detectSpeedCommand(text)
+    if (!cmd) return false
+    adjustSpeakingRate(cmd.direction)
+    setMessages((prev) => [...prev, { id: Date.now() + 1, type: 'ai', text: cmd.reply }])
+    if (TTS_KEY) speakText(cmd.reply, TTS_KEY, speakingRateRef.current).catch(console.error)
+    return true
+  }
+
   // ── Text send ─────────────────────────────────────────────
   const sendMessage = async (text) => {
-    if (!text.trim()) return
-    setMessages((prev) => [...prev, { id: Date.now(), type: 'user', text: text.trim() }])
+    const trimmed = text.trim()
+    if (!trimmed) return
+    setMessages((prev) => [...prev, { id: Date.now(), type: 'user', text: trimmed }])
     setInputText('')
-    await callGemini(text.trim())
+    if (handleSpeedCommandIfAny(trimmed)) return
+    await callGemini(trimmed)
   }
 
   // ── Web Speech API (STT) ──────────────────────────────────
@@ -241,6 +290,7 @@ function App() {
       const transcript = e.results[0][0].transcript
       setIsListening(false)
       setMessages((prev) => [...prev, { id: Date.now(), type: 'user', text: transcript }])
+      if (handleSpeedCommandIfAny(transcript)) return
       await callGemini(transcript)
     }
 
