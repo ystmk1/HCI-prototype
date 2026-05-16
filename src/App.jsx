@@ -24,9 +24,28 @@ import imgCarHigh from '../assets/images/car_high.png'
 
 // ── Service imports ─────────────────────────────────────────
 import { getGeminiResponse } from './services/gemini'
-import { speakText } from './services/tts'
+import {
+  speakText,
+  TTS_DEFAULT_SPEED,
+  TTS_MIN_SPEED,
+  TTS_MAX_SPEED,
+  TTS_SPEED_STEP,
+} from './services/tts'
 
 const TTS_KEY = import.meta.env.VITE_GOOGLE_TTS_API_KEY
+
+// Detects whether a user utterance is a request to change TTS speed.
+// Requires a speech-related qualifier (말/음성/목소리/얘기/tts/읽-) so that
+// unrelated mentions of speed (e.g. car speed) don't trigger it.
+function detectSpeedCommand(text) {
+  const t = text.trim().toLowerCase()
+  const hasSpeechContext = /말|음성|목소리|얘기|이야기|발음|tts|티티에스|읽/i.test(t)
+  if (!hasSpeechContext) return null
+  if (/(기본|원래|보통|디폴트|초기).*속도|속도.*(기본|원래|보통|초기화)/.test(t)) return 'reset'
+  if (/빠르|빨리|fast/.test(t)) return 'faster'
+  if (/느리|천천|slow/.test(t)) return 'slower'
+  return null
+}
 
 const SUGGESTIONS = [
   '현재 경로 확인',
@@ -87,6 +106,7 @@ function App() {
   
   const [scenarioContext, setScenarioContext] = useState('')
   const [hasShownScenarioCard, setHasShownScenarioCard] = useState(false)
+  const [ttsSpeed, setTtsSpeed] = useState(TTS_DEFAULT_SPEED)
 
   const messagesEndRef = useRef(null)
   const recognitionRef = useRef(null)
@@ -194,7 +214,7 @@ function App() {
         return newMessages
       })
 
-      if (aiText && TTS_KEY) speakText(aiText, TTS_KEY).catch(console.error)
+      if (aiText && TTS_KEY) speakText(aiText, TTS_KEY, ttsSpeed).catch(console.error)
     } catch (err) {
       console.error('Gemini error:', err)
       setIsAITyping(false)
@@ -205,12 +225,56 @@ function App() {
     }
   }
 
+  // ── TTS speed control ─────────────────────────────────────
+  const handleSpeedCommand = (cmd, userText) => {
+    let newSpeed = ttsSpeed
+    let response = ''
+
+    if (cmd === 'faster') {
+      newSpeed = Math.min(TTS_MAX_SPEED, +(ttsSpeed + TTS_SPEED_STEP).toFixed(2))
+      response = newSpeed === ttsSpeed
+        ? '이미 가장 빠른 속도로 말씀드리고 있어요.'
+        : '네, 더 빠르게 말씀드릴게요.'
+    } else if (cmd === 'slower') {
+      newSpeed = Math.max(TTS_MIN_SPEED, +(ttsSpeed - TTS_SPEED_STEP).toFixed(2))
+      response = newSpeed === ttsSpeed
+        ? '이미 가장 느린 속도로 말씀드리고 있어요.'
+        : '네, 조금 더 천천히 말씀드릴게요.'
+    } else {
+      newSpeed = TTS_DEFAULT_SPEED
+      response = '기본 속도로 돌아왔어요.'
+    }
+
+    setTtsSpeed(newSpeed)
+    const baseId = Date.now()
+    setMessages((prev) => [
+      ...prev,
+      { id: baseId, type: 'user', text: userText },
+      { id: baseId + 1, type: 'ai', text: response },
+    ])
+    if (TTS_KEY) speakText(response, TTS_KEY, newSpeed).catch(console.error)
+  }
+
+  // ── Unified user input entry (text + voice) ───────────────
+  const submitUserInput = async (text) => {
+    const trimmed = text.trim()
+    if (!trimmed) return
+
+    const speedCmd = detectSpeedCommand(trimmed)
+    if (speedCmd) {
+      handleSpeedCommand(speedCmd, trimmed)
+      return
+    }
+
+    setMessages((prev) => [...prev, { id: Date.now(), type: 'user', text: trimmed }])
+    await callGemini(trimmed)
+  }
+
   // ── Text send ─────────────────────────────────────────────
   const sendMessage = async (text) => {
     if (!text.trim()) return
-    setMessages((prev) => [...prev, { id: Date.now(), type: 'user', text: text.trim() }])
     setInputText('')
-    await callGemini(text.trim())
+    await submitUserInput(text)
   }
 
   // ── Web Speech API (STT) ──────────────────────────────────
@@ -240,8 +304,7 @@ function App() {
     rec.onresult = async (e) => {
       const transcript = e.results[0][0].transcript
       setIsListening(false)
-      setMessages((prev) => [...prev, { id: Date.now(), type: 'user', text: transcript }])
-      await callGemini(transcript)
+      await submitUserInput(transcript)
     }
 
     rec.onerror = (e) => {

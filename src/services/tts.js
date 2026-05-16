@@ -1,9 +1,15 @@
 const TTS_ENDPOINT = 'https://texttospeech.googleapis.com/v1/text:synthesize'
 
+export const TTS_DEFAULT_SPEED = 1.15
+export const TTS_MIN_SPEED = 0.7
+export const TTS_MAX_SPEED = 1.6
+export const TTS_SPEED_STEP = 0.15
+
 /**
  * Sends text to Google Cloud TTS and plays the returned MP3 audio.
  */
-export async function speakText(text, apiKey) {
+export async function speakText(text, apiKey, speed = TTS_DEFAULT_SPEED) {
+  const rate = Math.min(TTS_MAX_SPEED, Math.max(TTS_MIN_SPEED, speed))
   const res = await fetch(`${TTS_ENDPOINT}?key=${apiKey}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -16,7 +22,7 @@ export async function speakText(text, apiKey) {
       },
       audioConfig: {
         audioEncoding: 'MP3',
-        speakingRate: 1.05,
+        speakingRate: rate,
         pitch: 0,
       },
     }),
