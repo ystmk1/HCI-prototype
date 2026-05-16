@@ -15,12 +15,12 @@ const KEYS = (import.meta.env.VITE_GEMINI_API_KEYS ?? '')
 
 let currentKeyIdx = 0
 
-async function callOnce(text, apiKey) {
+async function callOnce(text, apiKey, customPrompt = SYSTEM_PROMPT) {
   const res = await fetch(`${ENDPOINT}?key=${apiKey}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+      systemInstruction: { parts: [{ text: customPrompt }] },
       contents: [{ role: 'user', parts: [{ text }] }],
       generationConfig: { responseModalities: ['TEXT'] },
     }),
@@ -41,9 +41,29 @@ async function callOnce(text, apiKey) {
   return parts.find((p) => p.text)?.text ?? ''
 }
 
-export async function getGeminiResponse(text) {
+export async function getGeminiResponse(text, context = '', needsScenarioCard = false) {
   if (KEYS.length === 0) {
     throw new Error('API 키가 설정되지 않았습니다 (VITE_GEMINI_API_KEYS)')
+  }
+
+  let finalPrompt = SYSTEM_PROMPT
+  if (context) {
+    finalPrompt = `당신은 탑승자를 태우고 운행 중인 완전자율주행(Lv5) 차량의 인공지능 시스템 자체입니다.
+탑승자에게 사람처럼 공감하거나 위로하는 말("답답하시죠?", "불편하셨죠?", "어이쿠" 등)을 절대 사용하지 마세요.
+오직 차량의 현재 주행 상태와 판단 이유만을 차분하고 명확하게, 시스템이 보고하듯 정중하게 대답해야 합니다.
+
+[현재 주행 상황 및 시스템 행동 지침]
+${context}
+
+[선택지 제공 및 사용자 의도 파악 로직]
+1. 탑승자가 "어떻게 할 거야?", "우회해", "언제 가?" 등 상황 타개책을 묻거나 불만을 표출하면, "다른 경로로 우회할까요?" 라는 질문과 함께 선택지를 제공하세요.
+이때, 답변 맨 마지막 줄에 반드시 "[OPTIONS:우회하기|기존 경로 유지]" 태그를 덧붙이세요.
+2. 만약 선택지가 제공된 상태에서, 탑승자가 음성이나 타이핑으로 "우회해줘", "우회", "우회하기", "돌아가자" 등 우회를 긍정하는 변용 발언을 하면, 이를 우회로 수락한 것으로 파악하고 "우회 경로로 안내하겠습니다"라고 답변하세요. 이 때 답변 맨 마지막 줄에 반드시 "[SELECTED_OPTION:우회하기]" 태그를 덧붙이세요.
+3. 반대로 "기존 경로 유지", "기존대로", "그대로 가자", "유지해" 등 기존 경로를 유지하겠다는 발언을 하면, "기존 경로를 유지합니다"라고 답변하고, 맨 마지막 줄에 반드시 "[SELECTED_OPTION:기존 경로 유지]" 태그를 덧붙이세요.`
+
+    if (needsScenarioCard) {
+      finalPrompt += `\n\n[시스템 제어 명령]\n이번 답변의 맨 마지막에는 화면에 UI 카드를 띄우기 위해 반드시 "[SHOW_ROUNDABOUT_CARD]" 라는 텍스트를 정확히 포함해야 합니다.`
+    }
   }
 
   let lastStatus = null
@@ -51,7 +71,7 @@ export async function getGeminiResponse(text) {
     const key = KEYS[currentKeyIdx]
     currentKeyIdx = (currentKeyIdx + 1) % KEYS.length
     try {
-      return await callOnce(text, key)
+      return await callOnce(text, key, finalPrompt)
     } catch (err) {
       lastStatus = err.status
       if (err.status === 429 || err.status === 503) {

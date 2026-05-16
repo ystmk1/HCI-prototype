@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Flame, Snowflake, Mic, MicOff, Send } from 'lucide-react'
+import { Flame, Snowflake, Mic, MicOff, Send, ExternalLink } from 'lucide-react'
 
 // ── Icon imports ────────────────────────────────────────────
 import iconSun from '../assets/icons/Icon-15.svg'
@@ -20,6 +20,7 @@ import voiceIcon from '../assets/icons/voice.svg'
 
 // ── Image imports ───────────────────────────────────────────
 import imgBg40 from '../assets/images/image 40.png'
+import imgCarHigh from '../assets/images/car_high.png'
 
 // ── Service imports ─────────────────────────────────────────
 import { getGeminiResponse } from './services/gemini'
@@ -83,6 +84,9 @@ function App() {
   const [isAutoClimate, setIsAutoClimate] = useState(true)
   const [currentTime, setCurrentTime] = useState(new Date())
   const [activeApp, setActiveApp] = useState(null)
+  
+  const [scenarioContext, setScenarioContext] = useState('')
+  const [hasShownScenarioCard, setHasShownScenarioCard] = useState(false)
 
   const messagesEndRef = useRef(null)
   const recognitionRef = useRef(null)
@@ -99,15 +103,97 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isAITyping])
 
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.ctrlKey && e.key === '1') {
+        e.preventDefault()
+        setScenarioContext('현재는 완전자율주행(Lv5) 상황입니다. 차량(AI)이 회전교차로를 통과하던 중, 우측 차선에 차가 너무 많아 안전하게 끼어들어 목적지 방향으로 빠져나가지 못했습니다. 그래서 차량 스스로 판단하여 교차로를 한 바퀴 더 도는 중입니다. 탑승자가 "왜 안 가?", "왜 돌아가?" 등으로 물어보면, 당신이 자동차 자체가 된 것처럼 "차량이 많아 끼어들지 못해 안전을 위해 한 바퀴 더 돌고 있습니다"라고 차분하게 답변해주세요. 사람을 달래듯 말하지 말고, 시스템의 주행 판단 결과를 보고하듯 명확하고 정중하게 답하세요.')
+        setHasShownScenarioCard(false)
+        console.log('Scenario 1 Triggered: Autonomous Roundabout Reroute')
+      } else if (e.ctrlKey && e.key === '0') {
+        e.preventDefault()
+        setScenarioContext('')
+        setHasShownScenarioCard(false)
+        setShowCarStatus(false)
+        console.log('Scenario Reset (Ctrl+0): Default prompt restored')
+      } else if (e.ctrlKey && e.key === 'r') {
+        e.preventDefault()
+        if (scenarioContext !== '') {
+          setMessages(msgs => {
+            // Prevent duplicate insertion
+            if (msgs.length > 0 && msgs[msgs.length - 1].text === '다른 경로로 우회할까요?') {
+              return msgs
+            }
+            console.log('Scenario Option Triggered (Ctrl+r): Showing detour options')
+            return [...msgs, {
+              id: Date.now(),
+              type: 'ai-card',
+              text: '다른 경로로 우회할까요?',
+              options: ['우회하기', '기존 경로 유지']
+            }]
+          })
+        }
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [scenarioContext])
+
   // ── Gemini + TTS ──────────────────────────────────────────
   const callGemini = async (text) => {
     setIsAITyping(true)
     
     try {
-      const aiText = await getGeminiResponse(text)
+      const needsCard = scenarioContext !== '' && !hasShownScenarioCard
+      let aiText = await getGeminiResponse(text, scenarioContext, needsCard)
       setIsAITyping(false)
+      
+      let hasCard = false
+      if (aiText.includes('[SHOW_ROUNDABOUT_CARD]')) {
+        aiText = aiText.replace('[SHOW_ROUNDABOUT_CARD]', '').trim()
+        hasCard = true
+        setHasShownScenarioCard(true)
+      }
+
+      let options = null
+      let isConfirmation = false
+      let selectedOptionMatch = null
+
+      const optionsMatch = aiText.match(/\[OPTIONS:(.*?)\]/)
+      if (optionsMatch) {
+        options = optionsMatch[1].split('|').map(s => s.trim())
+        aiText = aiText.replace(optionsMatch[0], '').trim()
+      }
+
+      const selectedMatch = aiText.match(/\[SELECTED_OPTION:(.*?)\]/)
+      if (selectedMatch) {
+        selectedOptionMatch = selectedMatch[1].trim()
+        isConfirmation = true
+        aiText = aiText.replace(selectedMatch[0], '').trim()
+      }
+
       const displayText = aiText || '(응답을 받지 못했습니다)'
-      setMessages((prev) => [...prev, { id: Date.now(), type: 'ai', text: displayText }])
+
+      setMessages((prev) => {
+        let newMessages = [...prev]
+        if (selectedOptionMatch) {
+          // Find the last ai-card and update its selectedOption
+          for (let i = newMessages.length - 1; i >= 0; i--) {
+            if (newMessages[i].type === 'ai-card') {
+              newMessages[i] = { ...newMessages[i], selectedOption: selectedOptionMatch }
+              break
+            }
+          }
+        }
+        
+        if (options) {
+          newMessages.push({ id: Date.now(), type: 'ai-card', text: displayText, options })
+        } else {
+          newMessages.push({ id: Date.now(), type: 'ai', text: displayText, hasRoundaboutCard: hasCard, isConfirmation })
+        }
+        return newMessages
+      })
+
       if (aiText && TTS_KEY) speakText(aiText, TTS_KEY).catch(console.error)
     } catch (err) {
       console.error('Gemini error:', err)
@@ -210,7 +296,23 @@ function App() {
       {/* ── Main Content: Unified Responsive Layout ───────────── */}
       <div className="layout-container" style={{ position: 'absolute', top: 104, left: 49, right: 51, height: 828, display: 'flex', gap: 11, zIndex: 10 }}>
         
-        {/* Left Panel: Idle or Chat */}
+        {/* Left Popup Panel (Details) */}
+        <AnimatePresence>
+          {showCarStatus && (
+            <motion.div
+              layout
+              initial={{ width: 0, opacity: 0 }}
+              animate={{ width: 593, opacity: 1 }}
+              exit={{ width: 0, opacity: 0 }}
+              transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+              style={{ overflow: 'hidden', flexShrink: 0, borderRadius: 24, background: '#d9d9d9' }}
+            >
+              <img src={imgCarHigh} alt="car view" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Center Panel: Idle or Chat */}
         <motion.div 
           layout
           className={`panel-main ${hasConversation ? 'chat-mode' : 'idle-mode'}`}
@@ -293,25 +395,9 @@ function App() {
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.3 }}
-                className={`panel-chat ${showCarStatus ? 'has-popup' : ''}`}
+                className="panel-chat"
                 style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}
               >
-            <AnimatePresence>
-              {showCarStatus && (
-                <motion.div
-                  className="panel-popup"
-                  initial={{ x: -100, opacity: 0 }}
-                  animate={{ x: 0, opacity: 1 }}
-                  exit={{ x: -100, opacity: 0 }}
-                  transition={{ duration: 0.3, ease: 'easeOut' }}
-                >
-                  <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#a0a0a5', fontSize: '24px' }}>
-                    차량 상태 뷰
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
             {/* Chat Messages */}
             <div className="chat-messages">
                 {messages.map((msg) => (
@@ -322,27 +408,42 @@ function App() {
                     transition={{ duration: 0.28 }}
                     className={`message-row ${msg.type === 'user' ? 'user' : ''}`}
                   >
-                    {msg.type === 'ai-card' ? (
+                    {msg.hasRoundaboutCard ? (
+                      <div className="roundabout-card">
+                        <div className="roundabout-card-title">{msg.text}</div>
+                        <div className="roundabout-card-image">
+                          <img src={imgCarHigh} alt="car view" />
+                          <button className="roundabout-card-btn" onClick={() => setShowCarStatus(true)}>
+                            눌러서 자세히 보기 <ExternalLink size={24} color="#131417" strokeWidth={2} />
+                          </button>
+                        </div>
+                      </div>
+                    ) : msg.type === 'ai-card' ? (
                       <div className="ai-option-card">
                         <div className="ai-option-title">{msg.text}</div>
                         <div className="ai-option-actions">
-                          {msg.options?.map((opt, i) => (
-                            <button
-                              key={i}
-                              className={`ai-option-btn ${msg.selectedOption === opt ? 'selected' : ''}`}
-                              onClick={() => {
-                                // Add selection logic here if needed
-                                sendMessage(opt)
-                              }}
-                            >
-                              {opt}
-                            </button>
-                          ))}
+                          {msg.options?.map((opt, i) => {
+                            const isSelected = msg.selectedOption === opt
+                            const isAnySelected = !!msg.selectedOption
+                            return (
+                              <button
+                                key={i}
+                                className={`ai-option-btn ${isSelected ? 'selected' : isAnySelected ? 'dimmed' : ''}`}
+                                onClick={() => {
+                                  if (!isAnySelected) {
+                                    sendMessage(opt)
+                                  }
+                                }}
+                              >
+                                {opt}
+                              </button>
+                            )
+                          })}
                         </div>
                       </div>
                     ) : (
                       <>
-                        <div className={`message-bubble ${msg.type}`}>
+                        <div className={`message-bubble ${msg.type} ${msg.isConfirmation ? 'confirmation' : ''}`}>
                           {msg.text}
                         </div>
                       </>
