@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Flame, Snowflake, Mic, MicOff, Send, ExternalLink } from 'lucide-react'
+import { Flame, Snowflake, Mic, MicOff, ExternalLink, X } from 'lucide-react'
 
 // ── Icon imports ────────────────────────────────────────────
 import iconSun from '../assets/icons/Icon-15.svg'
@@ -16,47 +16,25 @@ import iconMusic from '../assets/icons/Icon-2.svg'
 import iconMail from '../assets/icons/Icon-1.svg'
 import iconCalendar from '../assets/icons/Icon.svg'
 import iconMenu from '../assets/icons/Icon-13.svg'
-import voiceIcon from '../assets/icons/voice.svg'
+import voiceIcon from '../assets/icons/voiceicon.svg'
 
 // ── Image imports ───────────────────────────────────────────
 import imgBg40 from '../assets/images/image 40.png'
 import imgCarHigh from '../assets/images/car_high.png'
+import imgNavigation from '../assets/images/navigation.png'
 
 // ── Service imports ─────────────────────────────────────────
 import { getGeminiResponse } from './services/gemini'
-import {
-  speakText,
-  DEFAULT_SPEAKING_RATE,
-  MIN_SPEAKING_RATE,
-  MAX_SPEAKING_RATE,
-  SPEAKING_RATE_STEP,
-} from './services/tts'
+import { speakText, SPEED_LEVELS, DEFAULT_SPEED_LEVEL } from './services/tts'
+import { useWakeWord } from './hooks/useWakeWord'
+import AppView from './components/AppViews'
 
 const TTS_KEY = import.meta.env.VITE_GOOGLE_TTS_API_KEY
-
-// Detects spoken/typed commands to adjust TTS speed.
-// Returns { direction: 'faster' | 'slower' | 'reset', reply } or null.
-function detectSpeedCommand(text) {
-  const t = text.replace(/\s+/g, '')
-  const mentionsSpeech = /(말|목소리|음성|읽|속도|tts)/i.test(t)
-  if (/(보통|기본|원래|초기).*(속도|말|음성)|속도.*(초기화|리셋|기본)|기본속도/.test(t)) {
-    return { direction: 'reset', reply: '음성 속도를 기본으로 되돌렸습니다.' }
-  }
-  const faster = /(빠르게|빨리|빨라|빠른|빠르)/.test(t)
-  const slower = /(느리게|천천히|느려|느린|느리)/.test(t)
-  if (faster && (mentionsSpeech || /더/.test(t))) {
-    return { direction: 'faster', reply: '말하는 속도를 좀 더 빠르게 할게요.' }
-  }
-  if (slower && (mentionsSpeech || /더/.test(t))) {
-    return { direction: 'slower', reply: '말하는 속도를 좀 더 느리게 할게요.' }
-  }
-  return null
-}
 
 const SUGGESTIONS = [
   '현재 경로 확인',
   '경로 변경',
-  '추천옵션',
+  '추천 옵션',
   '현재 상황 브리핑',
 ]
 
@@ -109,24 +87,14 @@ function App() {
   const [isAutoClimate, setIsAutoClimate] = useState(true)
   const [currentTime, setCurrentTime] = useState(new Date())
   const [activeApp, setActiveApp] = useState(null)
-  
+
   const [scenarioContext, setScenarioContext] = useState('')
   const [hasShownScenarioCard, setHasShownScenarioCard] = useState(false)
 
   const messagesEndRef = useRef(null)
   const recognitionRef = useRef(null)
-  const speakingRateRef = useRef(DEFAULT_SPEAKING_RATE)
-
-  const adjustSpeakingRate = (direction) => {
-    const current = speakingRateRef.current
-    let next = current
-    if (direction === 'faster') next = current + SPEAKING_RATE_STEP
-    else if (direction === 'slower') next = current - SPEAKING_RATE_STEP
-    else if (direction === 'reset') next = DEFAULT_SPEAKING_RATE
-    next = Math.min(MAX_SPEAKING_RATE, Math.max(MIN_SPEAKING_RATE, next))
-    speakingRateRef.current = next
-    return next
-  }
+  const speedLevelRef = useRef(DEFAULT_SPEED_LEVEL)
+  const speakingRateRef = useRef(SPEED_LEVELS[DEFAULT_SPEED_LEVEL])
 
   const formatTime = (date) =>
     date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
@@ -142,18 +110,19 @@ function App() {
 
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.ctrlKey && e.key === '1') {
+      const altShift = e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey
+      if (altShift && e.code === 'KeyQ') {
         e.preventDefault()
         setScenarioContext('현재는 완전자율주행(Lv5) 상황입니다. 차량(AI)이 회전교차로를 통과하던 중, 우측 차선에 차가 너무 많아 안전하게 끼어들어 목적지 방향으로 빠져나가지 못했습니다. 그래서 차량 스스로 판단하여 교차로를 한 바퀴 더 도는 중입니다. 탑승자가 "왜 안 가?", "왜 돌아가?" 등으로 물어보면, 당신이 자동차 자체가 된 것처럼 "차량이 많아 끼어들지 못해 안전을 위해 한 바퀴 더 돌고 있습니다"라고 차분하게 답변해주세요. 사람을 달래듯 말하지 말고, 시스템의 주행 판단 결과를 보고하듯 명확하고 정중하게 답하세요.')
         setHasShownScenarioCard(false)
-        console.log('Scenario 1 Triggered: Autonomous Roundabout Reroute')
-      } else if (e.ctrlKey && e.key === '0') {
+        console.log('Scenario 1 Triggered (Alt+Shift+Q): Autonomous Roundabout Reroute')
+      } else if (altShift && e.code === 'KeyA') {
         e.preventDefault()
         setScenarioContext('')
         setHasShownScenarioCard(false)
         setShowCarStatus(false)
-        console.log('Scenario Reset (Ctrl+0): Default prompt restored')
-      } else if (e.ctrlKey && e.key === 'r') {
+        console.log('Scenario Reset (Alt+Shift+A): Default prompt restored')
+      } else if (altShift && e.code === 'KeyW') {
         e.preventDefault()
         if (scenarioContext !== '') {
           setMessages(msgs => {
@@ -161,7 +130,7 @@ function App() {
             if (msgs.length > 0 && msgs[msgs.length - 1].text === '다른 경로로 우회할까요?') {
               return msgs
             }
-            console.log('Scenario Option Triggered (Ctrl+r): Showing detour options')
+            console.log('Scenario Option Triggered (Alt+Shift+W): Showing detour options')
             return [...msgs, {
               id: Date.now(),
               type: 'ai-card',
@@ -179,12 +148,23 @@ function App() {
   // ── Gemini + TTS ──────────────────────────────────────────
   const callGemini = async (text) => {
     setIsAITyping(true)
-    
+
     try {
       const needsCard = scenarioContext !== '' && !hasShownScenarioCard
-      let aiText = await getGeminiResponse(text, scenarioContext, needsCard)
+      let aiText = await getGeminiResponse(text, scenarioContext, needsCard, speedLevelRef.current)
       setIsAITyping(false)
-      
+
+      const speedMatch = aiText.match(/\[SPEED:(slow|normal|fast|very_fast)\]/i)
+      if (speedMatch) {
+        const level = speedMatch[1].toLowerCase()
+        if (SPEED_LEVELS[level] !== undefined) {
+          speedLevelRef.current = level
+          speakingRateRef.current = SPEED_LEVELS[level]
+          console.log('[tts] speed level →', level, `(rate=${SPEED_LEVELS[level]})`)
+        }
+        aiText = aiText.replace(speedMatch[0], '').trim()
+      }
+
       let hasCard = false
       if (aiText.includes('[SHOW_ROUNDABOUT_CARD]')) {
         aiText = aiText.replace('[SHOW_ROUNDABOUT_CARD]', '').trim()
@@ -222,7 +202,7 @@ function App() {
             }
           }
         }
-        
+
         if (options) {
           newMessages.push({ id: Date.now(), type: 'ai-card', text: displayText, options })
         } else {
@@ -242,23 +222,12 @@ function App() {
     }
   }
 
-  // ── Handle TTS speed commands locally (bypass Gemini) ─────
-  const handleSpeedCommandIfAny = (text) => {
-    const cmd = detectSpeedCommand(text)
-    if (!cmd) return false
-    adjustSpeakingRate(cmd.direction)
-    setMessages((prev) => [...prev, { id: Date.now() + 1, type: 'ai', text: cmd.reply }])
-    if (TTS_KEY) speakText(cmd.reply, TTS_KEY, speakingRateRef.current).catch(console.error)
-    return true
-  }
-
   // ── Text send ─────────────────────────────────────────────
   const sendMessage = async (text) => {
     const trimmed = text.trim()
     if (!trimmed) return
     setMessages((prev) => [...prev, { id: Date.now(), type: 'user', text: trimmed }])
     setInputText('')
-    if (handleSpeedCommandIfAny(trimmed)) return
     await callGemini(trimmed)
   }
 
@@ -290,7 +259,6 @@ function App() {
       const transcript = e.results[0][0].transcript
       setIsListening(false)
       setMessages((prev) => [...prev, { id: Date.now(), type: 'user', text: transcript }])
-      if (handleSpeedCommandIfAny(transcript)) return
       await callGemini(transcript)
     }
 
@@ -308,6 +276,14 @@ function App() {
   const handleVoiceMicClick = () => {
     handleMicClick()
   }
+
+  // ── Wake word "자인아" → start STT ─────────────────────────
+  useWakeWord({
+    onWake: () => {
+      if (!isListening) handleMicClick()
+    },
+    isSttActive: isListening,
+  })
 
   const hasConversation = messages.length > 0
   const showSplitLayout = hasConversation || !!activeApp
@@ -345,25 +321,9 @@ function App() {
 
       {/* ── Main Content: Unified Responsive Layout ───────────── */}
       <div className="layout-container" style={{ position: 'absolute', top: 104, left: 49, right: 51, height: 828, display: 'flex', gap: 11, zIndex: 10 }}>
-        
-        {/* Left Popup Panel (Details) */}
-        <AnimatePresence>
-          {showCarStatus && (
-            <motion.div
-              layout
-              initial={{ width: 0, opacity: 0 }}
-              animate={{ width: 593, opacity: 1 }}
-              exit={{ width: 0, opacity: 0 }}
-              transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-              style={{ overflow: 'hidden', flexShrink: 0, borderRadius: 24, background: '#d9d9d9' }}
-            >
-              <img src={imgCarHigh} alt="car view" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            </motion.div>
-          )}
-        </AnimatePresence>
 
         {/* Center Panel: Idle or Chat */}
-        <motion.div 
+        <motion.div
           layout
           className={`panel-main ${hasConversation ? 'chat-mode' : 'idle-mode'}`}
           style={{ flex: 1, position: 'relative', borderRadius: 24, overflow: 'hidden', background: hasConversation ? 'white' : 'transparent', transition: 'background 0.3s' }}
@@ -379,65 +339,60 @@ function App() {
                 style={{ position: 'absolute', inset: 0 }}
               >
                 {/* Hero Title */}
-            <motion.div
-              className="hero-title"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.1, ease: 'easeOut' }}
-            >
-              <p>반갑습니다!</p>
-              <p>무엇을 도와드릴까요?</p>
-            </motion.div>
-
-            {/* Suggestion Chips */}
-            <div className="suggestion-chips">
-              {SUGGESTIONS.map((s, i) => (
-                <motion.button
-                  key={i}
-                  className="suggestion-chip"
-                  initial={{ opacity: 0, y: 12 }}
+                <motion.div
+                  className="hero-title"
+                  initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.3 + i * 0.08, duration: 0.35, ease: 'easeOut' }}
-                  onClick={() => sendMessage(s)}
+                  transition={{ duration: 0.6, delay: 0.1, ease: 'easeOut' }}
                 >
-                  <span>{s}</span>
-                </motion.button>
-              ))}
-            </div>
+                  <p>반갑습니다!</p>
+                  <p>무엇을 도와드릴까요?</p>
+                </motion.div>
 
-            {/* Voice / Text Input Area */}
-            <div className="voice-input-area">
-              <div className="voice-input-bg" />
-              <div className="voice-input-content">
-                <button
-                  className={`voice-btn ${isListening ? 'listening' : ''}`}
-                  onClick={handleVoiceMicClick}
-                >
-                  <img src={voiceIcon} alt="음성 입력" />
-                </button>
-                {isListening ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                    <ListeningWave />
-                    <span className="voice-listening-text">듣는 중...</span>
-                  </div>
-                ) : (
-                  <>
-                    <input
-                      type="text"
-                      className="voice-text-input"
-                      placeholder="무엇이든 물어보세요"
-                      value={inputText}
-                      onChange={(e) => setInputText(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && sendMessage(inputText)}
-                    />
-                    <button className="voice-send-btn" onClick={() => sendMessage(inputText)}>
-                      <Send size={34} color="#5c668d" strokeWidth={1.8} />
+                {/* Suggestion Chips */}
+                <div className="suggestion-chips">
+                  {SUGGESTIONS.map((s, i) => (
+                    <motion.button
+                      key={i}
+                      className="suggestion-chip"
+                      initial={{ opacity: 0, y: 12 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.3 + i * 0.08, duration: 0.35, ease: 'easeOut' }}
+                      onClick={() => sendMessage(s)}
+                    >
+                      <span>{s}</span>
+                    </motion.button>
+                  ))}
+                </div>
+
+                {/* Voice / Text Input Area */}
+                <div className="voice-input-area">
+                  <div className="voice-input-bg" />
+                  <div className="voice-input-content">
+                    <button
+                      className={`voice-btn ${isListening ? 'listening' : ''}`}
+                      onClick={handleVoiceMicClick}
+                    >
+                      <img src={voiceIcon} alt="음성 입력" />
                     </button>
-                  </>
-                )}
-              </div>
-            </div>
-          </motion.div>
+                    {isListening ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                        <ListeningWave />
+                        <span className="voice-listening-text">듣는 중...</span>
+                      </div>
+                    ) : (
+                      <input
+                        type="text"
+                        className="voice-text-input"
+                        placeholder="무엇이든 물어보세요"
+                        value={inputText}
+                        onChange={(e) => setInputText(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && sendMessage(inputText)}
+                      />
+                    )}
+                  </div>
+                </div>
+              </motion.div>
             ) : (
               <motion.div
                 key="chat"
@@ -448,140 +403,174 @@ function App() {
                 className="panel-chat"
                 style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}
               >
-            {/* Chat Messages */}
-            <div className="chat-messages">
-                {messages.map((msg) => (
-                  <motion.div
-                    key={msg.id}
-                    initial={{ opacity: 0, y: 14 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.28 }}
-                    className={`message-row ${msg.type === 'user' ? 'user' : ''}`}
-                  >
-                    {msg.hasRoundaboutCard ? (
-                      <div className="roundabout-card">
-                        <div className="roundabout-card-title">{msg.text}</div>
-                        <div className="roundabout-card-image">
-                          <img src={imgCarHigh} alt="car view" />
-                          <button className="roundabout-card-btn" onClick={() => setShowCarStatus(true)}>
-                            눌러서 자세히 보기 <ExternalLink size={24} color="#131417" strokeWidth={2} />
-                          </button>
-                        </div>
-                      </div>
-                    ) : msg.type === 'ai-card' ? (
-                      <div className="ai-option-card">
-                        <div className="ai-option-title">{msg.text}</div>
-                        <div className="ai-option-actions">
-                          {msg.options?.map((opt, i) => {
-                            const isSelected = msg.selectedOption === opt
-                            const isAnySelected = !!msg.selectedOption
-                            return (
-                              <button
-                                key={i}
-                                className={`ai-option-btn ${isSelected ? 'selected' : isAnySelected ? 'dimmed' : ''}`}
-                                onClick={() => {
-                                  if (!isAnySelected) {
-                                    sendMessage(opt)
-                                  }
-                                }}
-                              >
-                                {opt}
-                              </button>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <div className={`message-bubble ${msg.type} ${msg.isConfirmation ? 'confirmation' : ''}`}>
-                          {msg.text}
-                        </div>
-                      </>
-                    )}
-                  </motion.div>
-                ))}
-
-                <AnimatePresence>
-                  {isAITyping && (
+                {/* Chat Messages */}
+                <div className="chat-messages">
+                  {messages.map((msg) => (
                     <motion.div
-                      initial={{ opacity: 0, y: 10 }}
+                      key={msg.id}
+                      initial={{ opacity: 0, y: 14 }}
                       animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0 }}
-                      className="message-row"
+                      transition={{ duration: 0.28 }}
+                      className={`message-row ${msg.type === 'user' ? 'user' : ''}`}
                     >
-                      <div className="message-bubble ai" style={{ padding: '20px 32px' }}>
-                        <TypingDots />
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-
-                <div ref={messagesEndRef} />
-              </div>
-
-              {/* Chat Input Bar */}
-              <div className="chat-input-bar">
-                <div className="chat-input-inner">
-                  <motion.button
-                    whileTap={{ scale: 0.88 }}
-                    onClick={handleMicClick}
-                    className="voice-btn"
-                    style={{ width: 'auto', height: 'auto', background: 'transparent' }}
-                  >
-                    <img src={voiceIcon} alt="Mic" style={{ width: 44, height: 44, opacity: isListening ? 1 : 0.4 }} />
-                  </motion.button>
-
-                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', marginLeft: 10 }}>
-                    <AnimatePresence mode="wait">
-                      {isListening ? (
-                        <motion.div
-                          key="wave"
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          exit={{ opacity: 0 }}
-                          style={{ display: 'flex', alignItems: 'center', gap: 12 }}
-                        >
-                          <ListeningWave />
-                          <span style={{ fontSize: 32, color: '#4aa8ff', fontWeight: 500, letterSpacing: -1.5 }}>듣는 중...</span>
-                        </motion.div>
+                      {msg.hasRoundaboutCard ? (
+                        <div className="roundabout-card">
+                          <div className="roundabout-card-title">{msg.text}</div>
+                          <div className="roundabout-card-image">
+                            <img src={imgCarHigh} alt="car view" />
+                            <button className="roundabout-card-btn" onClick={() => setShowCarStatus(v => !v)}>
+                              눌러서 자세히 보기 <ExternalLink size={24} color="#131417" strokeWidth={2} />
+                            </button>
+                          </div>
+                        </div>
+                      ) : msg.type === 'ai-card' ? (
+                        <div className="ai-option-card">
+                          <div className="ai-option-title">{msg.text}</div>
+                          <div className="ai-option-actions">
+                            {msg.options?.map((opt, i) => {
+                              const isSelected = msg.selectedOption === opt
+                              const isAnySelected = !!msg.selectedOption
+                              return (
+                                <button
+                                  key={i}
+                                  className={`ai-option-btn ${isSelected ? 'selected' : isAnySelected ? 'dimmed' : ''}`}
+                                  onClick={() => {
+                                    if (!isAnySelected) {
+                                      sendMessage(opt)
+                                    }
+                                  }}
+                                >
+                                  {opt}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
                       ) : (
-                        <motion.input
-                          key="input"
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          exit={{ opacity: 0 }}
-                          type="text"
-                          value={inputText}
-                          onChange={(e) => setInputText(e.target.value)}
-                          onKeyDown={(e) => e.key === 'Enter' && sendMessage(inputText)}
-                          placeholder="무엇이든 물어보세요"
-                          className="chat-text-input"
-                        />
+                        <>
+                          <div className={`message-bubble ${msg.type} ${msg.isConfirmation ? 'confirmation' : ''}`}>
+                            {msg.text}
+                          </div>
+                        </>
                       )}
-                    </AnimatePresence>
-                  </div>
+                    </motion.div>
+                  ))}
 
                   <AnimatePresence>
-                    {inputText.trim() && !isListening && (
-                      <motion.button
-                        initial={{ scale: 0, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        exit={{ scale: 0, opacity: 0 }}
-                        transition={{ duration: 0.18 }}
-                        whileTap={{ scale: 0.88 }}
-                        onClick={() => sendMessage(inputText)}
-                        className="chat-send-btn"
+                    {isAITyping && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0 }}
+                        className="message-row"
                       >
-                        <Send size={44} color="#5c668d" strokeWidth={1.5} />
-                      </motion.button>
+                        <div className="message-bubble ai" style={{ padding: '20px 32px' }}>
+                          <TypingDots />
+                        </div>
+                      </motion.div>
                     )}
                   </AnimatePresence>
+
+                  <div ref={messagesEndRef} />
                 </div>
-              </div>
-            </motion.div>
+
+                {/* Chat Input Bar */}
+                <div className="chat-input-bar">
+                  <div className="chat-input-inner">
+                    <motion.button
+                      whileTap={{ scale: 0.88 }}
+                      onClick={handleMicClick}
+                      className="voice-btn"
+                      style={{ width: 'auto', height: 'auto', background: 'transparent' }}
+                    >
+                      <img src={voiceIcon} alt="Mic" style={{ width: 44, height: 44, opacity: isListening ? 1 : 0.4 }} />
+                    </motion.button>
+
+                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', marginLeft: 10 }}>
+                      <AnimatePresence mode="wait">
+                        {isListening ? (
+                          <motion.div
+                            key="wave"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            style={{ display: 'flex', alignItems: 'center', gap: 12 }}
+                          >
+                            <ListeningWave />
+                            <span style={{ fontSize: 32, color: '#4aa8ff', fontWeight: 500, letterSpacing: -1.5 }}>듣는 중...</span>
+                          </motion.div>
+                        ) : (
+                          <motion.input
+                            key="input"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            type="text"
+                            value={inputText}
+                            onChange={(e) => setInputText(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && sendMessage(inputText)}
+                            placeholder="무엇이든 물어보세요"
+                            className="chat-text-input"
+                          />
+                        )}
+                      </AnimatePresence>
+                    </div>
+
+                  </div>
+                </div>
+              </motion.div>
             )}
           </AnimatePresence>
         </motion.div>
+
+        {/* Right Popup Panel (Roundabout Details) */}
+        <AnimatePresence>
+          {showCarStatus && (
+            <motion.div
+              layout
+              initial={{ width: 0, opacity: 0, marginLeft: 0 }}
+              animate={{ width: 593, opacity: 1, marginLeft: 11 }}
+              exit={{ width: 0, opacity: 0, marginLeft: 0 }}
+              transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+              style={{ overflow: 'hidden', flexShrink: 0, borderRadius: 24, background: '#d9d9d9', position: 'relative' }}
+            >
+              <motion.div
+                drag="x"
+                dragConstraints={{ left: 0, right: 0 }}
+                dragElastic={{ left: 0, right: 0.6 }}
+                dragMomentum={false}
+                onDragEnd={(_, info) => {
+                  if (info.offset.x > 120 || info.velocity.x > 600) setShowCarStatus(false)
+                }}
+                style={{ width: '100%', height: '100%', cursor: 'grab' }}
+                whileDrag={{ cursor: 'grabbing' }}
+              >
+                <img
+                  src={imgNavigation}
+                  alt="navigation view"
+                  draggable={false}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }}
+                />
+              </motion.div>
+              <motion.button
+                whileTap={{ scale: 0.9 }}
+                whileHover={{ scale: 1.05 }}
+                onClick={() => setShowCarStatus(false)}
+                aria-label="닫기"
+                style={{
+                  position: 'absolute', top: 20, right: 20,
+                  width: 52, height: 52, borderRadius: '50%',
+                  background: 'rgba(255, 255, 255, 0.92)', border: 'none', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  boxShadow: '0 4px 14px rgba(0,0,0,0.18)',
+                  backdropFilter: 'blur(4px)',
+                }}
+              >
+                <X size={28} color="#131417" strokeWidth={2.2} />
+              </motion.button>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Right Panel: App View */}
         <AnimatePresence>
@@ -593,20 +582,8 @@ function App() {
               transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
               style={{ overflow: 'hidden', flexShrink: 0, borderRadius: 24 }}
             >
-              <div className="panel-app" style={{ width: 482, height: '100%', borderRadius: 24, background: '#d9d9d9' }}>
-                <motion.div 
-                  key={activeApp}
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  className="app-view-container"
-                  style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#eceaea' }}
-                >
-                  <img src={APP_ICONS.find(i => i.id === activeApp)?.icon} alt={activeApp} style={{ width: 80, height: 80, opacity: 0.5, filter: 'grayscale(100%)' }} />
-                  <div style={{ color: '#888', fontSize: '24px', marginTop: 16, fontWeight: 500 }}>
-                    {activeApp} 실행 중
-                  </div>
-                </motion.div>
+              <div className="panel-app" style={{ width: 482, height: '100%', borderRadius: 24, overflow: 'hidden', background: '#f5f5f7' }}>
+                <AppView id={activeApp} onClose={() => setActiveApp(null)} />
               </div>
             </motion.div>
           )}
@@ -617,8 +594,8 @@ function App() {
       <div className="bottom-bar">
         {/* Left: Home, Climate Controls */}
         <div className="bottom-left">
-          <motion.button 
-            whileTap={{ scale: 0.92 }} 
+          <motion.button
+            whileTap={{ scale: 0.92 }}
             className="btn-home"
             onClick={() => {
               setMessages([])

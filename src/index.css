@@ -175,8 +175,7 @@ body {
 /* ── Suggestion Chips ───────────────────────────────── */
 .suggestion-chips {
   position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 54px;
   top: 364px;
   display: flex;
   align-items: center;

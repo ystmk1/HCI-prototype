@@ -1,9 +1,17 @@
 const TTS_ENDPOINT = 'https://texttospeech.googleapis.com/v1/text:synthesize'
 
-export const DEFAULT_SPEAKING_RATE = 1.15
+// Discrete speed levels. One spoken request should produce a perceptible jump,
+// not a tiny increment, so the rates here are spaced far apart on purpose.
+export const SPEED_LEVELS = {
+  slow: 0.85,
+  normal: 1.15,
+  fast: 1.5,
+  very_fast: 1.85,
+}
+export const DEFAULT_SPEED_LEVEL = 'normal'
+export const DEFAULT_SPEAKING_RATE = SPEED_LEVELS[DEFAULT_SPEED_LEVEL]
 export const MIN_SPEAKING_RATE = 0.6
 export const MAX_SPEAKING_RATE = 2.0
-export const SPEAKING_RATE_STEP = 0.15
 
 /**
  * Sends text to Google Cloud TTS and plays the returned MP3 audio.
