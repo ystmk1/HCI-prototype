@@ -28,6 +28,7 @@ import { getGeminiResponse } from './services/gemini'
 import { speakText, SPEED_LEVELS, DEFAULT_SPEED_LEVEL } from './services/tts'
 import { useWakeWord } from './hooks/useWakeWord'
 import AppView from './components/AppViews'
+import ControlPanel from './components/ControlPanel'
 
 const TTS_KEY = import.meta.env.VITE_GOOGLE_TTS_API_KEY
 
@@ -87,6 +88,7 @@ function App() {
   const [isAutoClimate, setIsAutoClimate] = useState(true)
   const [currentTime, setCurrentTime] = useState(new Date())
   const [activeApp, setActiveApp] = useState(null)
+  const [isControlPanelOpen, setIsControlPanelOpen] = useState(false)
 
   const [scenarioContext, setScenarioContext] = useState('')
   const [hasShownScenarioCard, setHasShownScenarioCard] = useState(false)
@@ -662,11 +664,22 @@ function App() {
 
         {/* Right: Menu */}
         <div className="bottom-right">
-          <motion.button whileTap={{ scale: 0.92 }} className="btn-menu">
+          <motion.button
+            whileTap={{ scale: 0.92 }}
+            className="btn-menu"
+            onClick={() => setIsControlPanelOpen(v => !v)}
+          >
             <img src={iconMenu} alt="Menu" />
           </motion.button>
         </div>
       </div>
+
+      {/* ── Control Panel Drawer (Vehicle controls + Media apps) ── */}
+      <AnimatePresence>
+        {isControlPanelOpen && (
+          <ControlPanel onClose={() => setIsControlPanelOpen(false)} />
+        )}
+      </AnimatePresence>
     </div>
   )
 }
