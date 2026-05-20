@@ -110,6 +110,13 @@ export default function OperatorConsole() {
     startNewParticipant,
     initializeHMI,
     markExported,
+    isArchiveSupported,
+    archiveFolderName,
+    archiveStatus,
+    selectArchiveFolder,
+    reconnectArchivePermission,
+    testArchiveSave,
+    clearArchiveFolder,
   } = useExperiment()
 
   // ── Setup form ────────────────────────────────────────────
@@ -291,6 +298,17 @@ export default function OperatorConsole() {
         </div>
         <StatusBadge saveStatus={saveStatus} />
       </header>
+
+      {/* JSON Archive Folder bar (always visible) */}
+      <ArchiveBar
+        supported={isArchiveSupported}
+        folderName={archiveFolderName}
+        status={archiveStatus}
+        onSelect={selectArchiveFolder}
+        onReconnect={reconnectArchivePermission}
+        onTest={testArchiveSave}
+        onClear={clearArchiveFolder}
+      />
 
       <main className="flex-1 max-w-3xl mx-auto w-full px-4 py-6">
 
@@ -774,5 +792,84 @@ function PhaseTag({ phase }) {
   const { label = phase.toUpperCase(), bg = 'bg-gray-100 text-gray-600' } = map[phase] ?? {}
   return (
     <span className={`text-xs font-semibold rounded px-2 py-0.5 ${bg}`}>{label}</span>
+  )
+}
+
+// ── ArchiveBar (always-visible JSON Archive Folder bar) ───────
+function ArchiveStatusBadge({ status }) {
+  const map = {
+    idle:                { label: '대기', cls: 'text-gray-400' },
+    ready:               { label: '✓ 연결됨 (저장 준비)', cls: 'text-green-600 font-semibold' },
+    permission_required: { label: '⚠ 권한 필요 — Reconnect Permission', cls: 'text-amber-600 font-semibold' },
+    saving:              { label: '… 저장 중', cls: 'text-blue-600 font-semibold' },
+    success:             { label: '✓ 저장 성공', cls: 'text-green-600 font-semibold' },
+    error:               { label: '✗ 저장 실패', cls: 'text-red-600 font-semibold' },
+    skipped:             { label: '폴더 미선택 — archive 건너뜀', cls: 'text-gray-400' },
+    unsupported:         { label: '이 브라우저는 폴더 저장 미지원', cls: 'text-gray-400' },
+  }
+  const { label, cls } = map[status?.status] ?? map.idle
+  return <span className={`text-xs font-mono ${cls}`}>{label}</span>
+}
+
+function ArchiveBar({ supported, folderName, status, onSelect, onReconnect, onTest, onClear }) {
+  const hasFolder = !!folderName
+  return (
+    <div className="bg-white border-b border-gray-200 px-6 py-2 sticky top-[49px] z-10">
+      <div className="max-w-3xl mx-auto w-full flex items-center gap-3 flex-wrap">
+        <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+          JSON Archive Folder
+        </span>
+
+        {!supported ? (
+          <span className="text-xs text-gray-400">
+            이 브라우저는 로컬 폴더 저장(File System Access API)을 지원하지 않습니다. Export JSON을 사용하세요.
+          </span>
+        ) : (
+          <>
+            <span className="text-xs font-mono text-gray-600 truncate max-w-[200px]">
+              {hasFolder ? `📁 ${folderName}` : '선택 안 됨'}
+            </span>
+
+            <ArchiveStatusBadge status={status} />
+
+            <div className="flex items-center gap-1.5 ml-auto">
+              <Btn onClick={onSelect} variant="outline" size="sm">
+                Select Folder
+              </Btn>
+              {hasFolder && status?.status === 'permission_required' && (
+                <Btn onClick={onReconnect} variant="warning" size="sm">
+                  Reconnect Permission
+                </Btn>
+              )}
+              {hasFolder && (
+                <Btn onClick={onTest} variant="ghost" size="sm">
+                  Test Save
+                </Btn>
+              )}
+              {hasFolder && (
+                <Btn onClick={onClear} variant="ghost" size="sm">
+                  Clear Folder Setting
+                </Btn>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+
+      {status?.status === 'error' && status?.error && (
+        <div className="max-w-3xl mx-auto w-full mt-1">
+          <span className="text-xs text-red-600 font-mono">
+            오류: {status.error} · localStorage 저장과 Export JSON은 정상입니다.
+          </span>
+        </div>
+      )}
+      {status?.status === 'success' && status?.filename && (
+        <div className="max-w-3xl mx-auto w-full mt-1">
+          <span className="text-xs text-green-600 font-mono">
+            저장됨: {status.filename}
+          </span>
+        </div>
+      )}
+    </div>
   )
 }

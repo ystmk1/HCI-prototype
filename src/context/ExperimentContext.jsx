@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react'
 import * as sessionLogger from '../services/sessionLogger'
+import * as jsonArchive from '../services/jsonArchive'
 import { getScenarioById } from '../data/scenarios'
 
 const CHANNEL_NAME = 'exp_channel'
@@ -47,6 +48,42 @@ export function ExperimentProvider({ children }) {
   const [nextParticipantId, setNextParticipantId] = useState(
     () => sessionLogger.generateNextParticipantId()
   )
+
+  // ── JSON archive (optional local-folder backup) ─────────────
+  const isArchiveSupported = jsonArchive.isSupported()
+  const [archiveFolderName, setArchiveFolderName] = useState(null)
+  // status: idle | ready | permission_required | saving | success | error | skipped | unsupported
+  const [archiveStatus, setArchiveStatus] = useState({
+    status: isArchiveSupported ? 'idle' : 'unsupported',
+    filename: null,
+    error: null,
+    savedAt: null,
+  })
+  const archiveDirHandleRef = useRef(null)
+
+  // Restore persisted folder handle on mount (no permission prompt here)
+  useEffect(() => {
+    if (!isArchiveSupported) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const handle = await jsonArchive.loadHandleFromIDB()
+        if (cancelled || !handle) return
+        archiveDirHandleRef.current = handle
+        setArchiveFolderName(handle.name)
+        const perm = await jsonArchive.queryPermission(handle)
+        setArchiveStatus({
+          status: perm === 'granted' ? 'ready' : 'permission_required',
+          filename: null,
+          error: null,
+          savedAt: null,
+        })
+      } catch (err) {
+        console.error('[archive] restore failed:', err)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [isArchiveSupported])
 
   // ── Refs (stable across renders, not reactive) ───────────
   const channelRef = useRef(null)
@@ -221,6 +258,121 @@ export function ExperimentProvider({ children }) {
     [broadcast]
   )
 
+  // ── Archive: select folder (user gesture → may request permission) ─
+  const selectArchiveFolder = useCallback(async () => {
+    if (!isArchiveSupported) return
+    try {
+      const handle = await jsonArchive.pickDirectory()
+      if (!handle) return // user cancelled
+      // showDirectoryPicker grants readwrite; confirm explicitly.
+      const perm = await jsonArchive.requestPermission(handle)
+      archiveDirHandleRef.current = handle
+      setArchiveFolderName(handle.name)
+      await jsonArchive.saveHandleToIDB(handle)
+      setArchiveStatus({
+        status: perm === 'granted' ? 'ready' : 'permission_required',
+        filename: null,
+        error: null,
+        savedAt: null,
+      })
+    } catch (err) {
+      console.error('[archive] selectArchiveFolder failed:', err)
+      setArchiveStatus({ status: 'error', filename: null, error: err.message, savedAt: null })
+    }
+  }, [isArchiveSupported])
+
+  // ── Archive: reconnect permission (user gesture) ──────────
+  const reconnectArchivePermission = useCallback(async () => {
+    const handle = archiveDirHandleRef.current
+    if (!handle) return
+    try {
+      const perm = await jsonArchive.requestPermission(handle)
+      setArchiveStatus((prev) => ({
+        ...prev,
+        status: perm === 'granted' ? 'ready' : 'permission_required',
+        error: perm === 'granted' ? null : prev.error,
+      }))
+    } catch (err) {
+      console.error('[archive] reconnectArchivePermission failed:', err)
+      setArchiveStatus({ status: 'error', filename: null, error: err.message, savedAt: null })
+    }
+  }, [])
+
+  // ── Archive: test write (user gesture) ────────────────────
+  const testArchiveSave = useCallback(async () => {
+    const handle = archiveDirHandleRef.current
+    if (!handle) return
+    try {
+      let perm = await jsonArchive.queryPermission(handle)
+      if (perm !== 'granted') perm = await jsonArchive.requestPermission(handle)
+      if (perm !== 'granted') {
+        setArchiveStatus({ status: 'permission_required', filename: null, error: null, savedAt: null })
+        return
+      }
+      const filename = 'test_archive_write.json'
+      await jsonArchive.writeJSON(handle, filename, {
+        test: true,
+        writtenAt: new Date().toISOString(),
+      })
+      setArchiveStatus({ status: 'success', filename, error: null, savedAt: new Date().toISOString() })
+    } catch (err) {
+      console.error('[archive] testArchiveSave failed:', err)
+      setArchiveStatus({ status: 'error', filename: null, error: err.message, savedAt: null })
+    }
+  }, [])
+
+  // ── Archive: clear folder setting (does NOT touch logs) ───
+  const clearArchiveFolder = useCallback(async () => {
+    try {
+      await jsonArchive.clearHandleFromIDB()
+    } catch (err) {
+      console.error('[archive] clearArchiveFolder failed:', err)
+    }
+    archiveDirHandleRef.current = null
+    setArchiveFolderName(null)
+    setArchiveStatus({
+      status: isArchiveSupported ? 'idle' : 'unsupported',
+      filename: null,
+      error: null,
+      savedAt: null,
+    })
+  }, [isArchiveSupported])
+
+  // ── Archive: auto-write on Final Save (NO permission prompt) ─
+  // Fire-and-forget. Never blocks or fails Final Save.
+  const archiveOnFinalSave = useCallback(async (participantId) => {
+    const handle = archiveDirHandleRef.current
+    if (!isArchiveSupported) {
+      setArchiveStatus({ status: 'unsupported', filename: null, error: null, savedAt: null })
+      return
+    }
+    if (!handle) {
+      setArchiveStatus({ status: 'skipped', filename: null, error: null, savedAt: null })
+      return
+    }
+    try {
+      const perm = await jsonArchive.queryPermission(handle)
+      if (perm !== 'granted') {
+        // prompt/denied → do NOT request here; signal that a user gesture is needed.
+        setArchiveStatus({ status: 'permission_required', filename: null, error: null, savedAt: null })
+        return
+      }
+      setArchiveStatus({ status: 'saving', filename: null, error: null, savedAt: null })
+      const session = sessionLogger.getParticipantSession(participantId)
+      if (!session) {
+        setArchiveStatus({ status: 'error', filename: null, error: 'No saved session to archive', savedAt: null })
+        return
+      }
+      const trialCount = session.trials?.length ?? 0
+      const filename = jsonArchive.buildArchiveFilename(participantId, trialCount)
+      await jsonArchive.writeJSON(handle, filename, session)
+      setArchiveStatus({ status: 'success', filename, error: null, savedAt: new Date().toISOString() })
+    } catch (err) {
+      console.error('[archive] archiveOnFinalSave failed:', err)
+      setArchiveStatus({ status: 'error', filename: null, error: err.message, savedAt: null })
+    }
+  }, [isArchiveSupported])
+
   // ── Operator: final save (idempotent) ────────────────────
   const doFinalSave = useCallback(
     (reviewForm, editHistory) => {
@@ -279,11 +431,13 @@ export function ExperimentProvider({ children }) {
           ageRange: participantData.participant.ageRange,
           drivingExperience: participantData.participant.drivingExperience,
         }))
+        // Optional archive backup — fire-and-forget, never blocks Final Save.
+        archiveOnFinalSave(participant.participantId)
       }
 
       return result
     },
-    [currentParticipant]
+    [currentParticipant, archiveOnFinalSave]
   )
 
   // ── Operator: add another trial (same participant) ───────
@@ -437,6 +591,10 @@ export function ExperimentProvider({ children }) {
     activeScenario,
     saveStatus,
     nextParticipantId,
+    // Archive state
+    isArchiveSupported,
+    archiveFolderName,
+    archiveStatus,
     // Operator functions
     startTrial,
     endTrial,
@@ -445,6 +603,11 @@ export function ExperimentProvider({ children }) {
     startNewParticipant,
     initializeHMI,
     markExported,
+    // Archive functions
+    selectArchiveFolder,
+    reconnectArchivePermission,
+    testArchiveSave,
+    clearArchiveFolder,
     // HMI logging functions
     addPendingTurn,
     completeTurn,
