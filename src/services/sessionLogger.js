@@ -82,6 +82,43 @@ export const clearCurrentSession = () => {
   localStorage.removeItem(KEYS.CURRENT_TURNS)
 }
 
+// ── Reset test/rehearsal data (DANGEROUS — operator only) ────
+// Deletes ONLY experiment localStorage keys so the next participant
+// restarts at P001. Explicitly removed:
+//   exp_participant_counter, exp_current_participant, exp_current_trial,
+//   exp_current_turns, exp_saved_sessions, and every exp_trial_counter_* key.
+// NOT touched: JSON archive folder handle (IndexedDB 'exp_archive'),
+// Gemini/STT/TTS settings, or any other key.
+export const resetTestData = () => {
+  const keysToRemove = [
+    KEYS.PARTICIPANT_COUNTER,
+    KEYS.CURRENT_PARTICIPANT,
+    KEYS.CURRENT_TRIAL,
+    KEYS.CURRENT_TURNS,
+    KEYS.SAVED_SESSIONS,
+  ]
+
+  // Collect dynamic per-participant trial counters (exp_trial_counter_*)
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i)
+    if (key && key.startsWith(KEYS.TRIAL_COUNTER_PREFIX)) {
+      keysToRemove.push(key)
+    }
+  }
+
+  const removedKeys = []
+  for (const key of keysToRemove) {
+    try {
+      if (localStorage.getItem(key) !== null) removedKeys.push(key)
+      localStorage.removeItem(key)
+    } catch (e) {
+      console.error('[sessionLogger] resetTestData remove failed:', key, e)
+    }
+  }
+
+  return { success: true, removedKeys }
+}
+
 // ── Final save (idempotent upsert by participantId/trialId) ──
 export const saveParticipantSession = (participantData) => {
   try {

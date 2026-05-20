@@ -109,6 +109,7 @@ export default function OperatorConsole() {
     addAnotherTrial,
     startNewParticipant,
     initializeHMI,
+    resetTestData,
     markExported,
     isArchiveSupported,
     archiveFolderName,
@@ -738,6 +739,14 @@ export default function OperatorConsole() {
           </>
         )}
 
+        {/* ── DANGER ZONE (setup / saved only) ─────────────── */}
+        {(experimentPhase === 'setup' || experimentPhase === 'saved') && (
+          <DangerZone
+            nextParticipantId={nextParticipantId}
+            onReset={resetTestData}
+          />
+        )}
+
       </main>
 
       {/* Footer info */}
@@ -792,6 +801,111 @@ function PhaseTag({ phase }) {
   const { label = phase.toUpperCase(), bg = 'bg-gray-100 text-gray-600' } = map[phase] ?? {}
   return (
     <span className={`text-xs font-semibold rounded px-2 py-0.5 ${bg}`}>{label}</span>
+  )
+}
+
+// ── DangerZone (collapsed; Reset Test Data with 2-step confirm) ─
+function DangerZone({ nextParticipantId, onReset }) {
+  const [open, setOpen] = useState(false)
+  const [confirming, setConfirming] = useState(false)
+  const [confirmText, setConfirmText] = useState('')
+  const [resultMsg, setResultMsg] = useState(null)
+
+  // Step 1: native confirm warning
+  const handleInitiate = () => {
+    const ok = window.confirm(
+      '⚠ 테스트/리허설 데이터를 전체 삭제합니다.\n\n' +
+        '삭제됨: 참가자 카운터 · 진행 중 세션 · 저장된 모든 세션 · Trial 카운터\n' +
+        '유지됨: JSON Archive 폴더 설정 · Gemini/STT/TTS 설정\n\n' +
+        '실제 실험 데이터가 있다면 먼저 Export 하세요. 계속하시겠습니까?'
+    )
+    if (!ok) return
+    setResultMsg(null)
+    setConfirming(true)
+  }
+
+  // Step 2: require the operator to type RESET
+  const handleExecute = () => {
+    if (confirmText !== 'RESET') return
+    const result = onReset()
+    setConfirming(false)
+    setConfirmText('')
+    const removed = result?.removedKeys?.length ?? 0
+    setResultMsg(
+      `✓ Reset 완료 — localStorage 키 ${removed}개 삭제됨. 다음 참가자: ${sessionLogger.generateNextParticipantId()}`
+    )
+  }
+
+  const handleCancel = () => {
+    setConfirming(false)
+    setConfirmText('')
+  }
+
+  return (
+    <div className="border border-red-200 rounded-lg mt-8 bg-red-50/40">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-4 py-3 text-left"
+      >
+        <span className="text-xs font-semibold uppercase tracking-wide text-red-600">
+          ⚠ 위험 구역 (Danger Zone)
+        </span>
+        <span className="text-xs text-red-400">{open ? '▲ 접기' : '▼ 펼치기'}</span>
+      </button>
+
+      {open && (
+        <div className="px-4 pb-4 space-y-3">
+          <p className="text-xs text-gray-500 leading-relaxed">
+            테스트/리허설 데이터를 전체 삭제하고 다음 참가자를 <strong>P001</strong>부터 다시 시작합니다.
+            저장된 세션과 카운터가 모두 사라집니다. JSON Archive 폴더 설정과 Gemini/STT/TTS 설정은 유지됩니다.
+          </p>
+
+          <div className="text-xs font-mono text-gray-500">
+            현재 다음 참가자 ID: <span className="font-bold text-gray-700">{nextParticipantId}</span>
+          </div>
+
+          {!confirming ? (
+            <Btn onClick={handleInitiate} variant="danger" size="md">
+              ⟲ Reset Test Data
+            </Btn>
+          ) : (
+            <div className="border border-red-300 rounded-lg p-3 bg-white space-y-2">
+              <label className="block text-xs font-medium text-red-600">
+                실행하려면 <span className="font-mono font-bold">RESET</span> 을 입력하세요
+              </label>
+              <input
+                type="text"
+                autoFocus
+                className="w-full border border-red-300 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-red-500"
+                placeholder="RESET"
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value)}
+              />
+              <div className="flex gap-2">
+                <Btn
+                  onClick={handleExecute}
+                  variant="danger"
+                  size="md"
+                  disabled={confirmText !== 'RESET'}
+                >
+                  전체 삭제 실행
+                </Btn>
+                <Btn onClick={handleCancel} variant="ghost" size="md">
+                  취소
+                </Btn>
+              </div>
+            </div>
+          )}
+
+          {resultMsg && (
+            <div className="text-xs font-mono text-green-700 bg-green-50 border border-green-200 rounded px-3 py-2">
+              {resultMsg}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 

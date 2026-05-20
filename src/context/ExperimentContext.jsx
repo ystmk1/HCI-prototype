@@ -471,6 +471,32 @@ export function ExperimentProvider({ children }) {
     broadcast(BC.INITIALIZE_HMI)
   }, [broadcast])
 
+  // ── Operator: reset ALL test/rehearsal data (DANGEROUS) ──
+  // Clears experiment localStorage so the next participant restarts at P001.
+  // Does NOT touch the JSON archive folder handle (IndexedDB) or Gemini/STT/TTS
+  // settings; the selected archive folder stays connected. Also re-initializes
+  // the /hmi display via the existing INITIALIZE_HMI broadcast.
+  const resetTestData = useCallback(() => {
+    const result = sessionLogger.resetTestData()
+
+    // Reset live operator/HMI state back to a clean SETUP.
+    setCurrentParticipant(null)
+    setCurrentTrial(null)
+    setLiveConversationTurns([])
+    setActiveScenario(null)
+    setExperimentPhase('setup')
+    setSaveStatus({ autosaved: false, finalSaved: false, exported: false })
+    turnCounterRef.current = 0
+
+    // Counter is gone → next participant ID re-derives to P001.
+    setNextParticipantId(sessionLogger.generateNextParticipantId())
+
+    // Initialize the participant-facing /hmi screen too.
+    broadcast(BC.INITIALIZE_HMI)
+
+    return result
+  }, [broadcast])
+
   // ── Operator: mark exported ──────────────────────────────
   const markExported = useCallback(() => {
     setSaveStatus((prev) => ({ ...prev, exported: true }))
@@ -602,6 +628,7 @@ export function ExperimentProvider({ children }) {
     addAnotherTrial,
     startNewParticipant,
     initializeHMI,
+    resetTestData,
     markExported,
     // Archive functions
     selectArchiveFolder,
