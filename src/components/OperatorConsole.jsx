@@ -189,14 +189,29 @@ export default function OperatorConsole() {
     setEditHistory([])
   }, [experimentPhase]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Record an edit, coalescing a continuous typing burst on the same
+  // field/turn into a single history entry (keep the original oldValue,
+  // update newValue) instead of one entry per keystroke.
+  const recordEdit = (field, turnId, oldValue, newValue) => {
+    setEditHistory((prev) => {
+      const ts = new Date().toISOString()
+      const last = prev[prev.length - 1]
+      if (last && last.field === field && last.turnId === turnId) {
+        const updated = prev.slice()
+        updated[updated.length - 1] = { ...last, newValue, timestamp: ts }
+        return updated
+      }
+      const entry = { timestamp: ts, field, oldValue, newValue }
+      if (turnId) entry.turnId = turnId
+      return [...prev, entry]
+    })
+  }
+
   const updateReviewField = (field, newValue) => {
     const oldValue = reviewForm[field]
     if (oldValue === newValue) return
     setReviewForm((prev) => ({ ...prev, [field]: newValue }))
-    setEditHistory((prev) => [
-      ...prev,
-      { timestamp: new Date().toISOString(), field, oldValue, newValue },
-    ])
+    recordEdit(field, undefined, oldValue, newValue)
   }
 
   const updateCorrectedTranscript = (turnId, newValue) => {
@@ -206,16 +221,7 @@ export default function OperatorConsole() {
       ...prev,
       correctedTranscripts: { ...prev.correctedTranscripts, [turnId]: newValue },
     }))
-    setEditHistory((prev) => [
-      ...prev,
-      {
-        timestamp: new Date().toISOString(),
-        field: 'userCorrectedTranscript',
-        turnId,
-        oldValue,
-        newValue,
-      },
-    ])
+    recordEdit('userCorrectedTranscript', turnId, oldValue, newValue)
   }
 
   const updateCorrectedResponse = (turnId, newValue) => {
@@ -225,16 +231,7 @@ export default function OperatorConsole() {
       ...prev,
       correctedResponses: { ...prev.correctedResponses, [turnId]: newValue },
     }))
-    setEditHistory((prev) => [
-      ...prev,
-      {
-        timestamp: new Date().toISOString(),
-        field: 'aiIdealResponse',
-        turnId,
-        oldValue,
-        newValue,
-      },
-    ])
+    recordEdit('aiIdealResponse', turnId, oldValue, newValue)
   }
 
   // Build conversation turns enriched with operator corrections.
