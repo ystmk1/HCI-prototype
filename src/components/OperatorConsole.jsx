@@ -19,17 +19,26 @@ const TRIAL_STATUSES = [
 
 // ── Helper components ─────────────────────────────────────────
 
+// Data-safety indicators. Workflow stage (incl. final-save) is shown by the
+// PhaseTag, so this badge only carries the two signals the phase doesn't:
+//   • 자동 백업 — live session is mirrored to localStorage (survives refresh)
+//   • 내보냄   — a participant JSON file was downloaded to disk
 function StatusBadge({ saveStatus }) {
+  const pill = (on, onText, offText, onCls) =>
+    `px-2.5 py-0.5 rounded-full border ${on ? onCls : 'border-gray-200 text-gray-300'}`
   return (
-    <div className="flex items-center gap-3 text-xs font-mono">
-      <span className={saveStatus.autosaved ? 'text-blue-600 font-semibold' : 'text-gray-300'}>
-        ● Autosaved
+    <div className="flex items-center gap-2 text-xs">
+      <span
+        title="진행 중인 대화가 브라우저에 자동 저장됩니다. 새로고침해도 복구돼요."
+        className={pill(saveStatus.autosaved, null, null, 'border-blue-200 bg-blue-50 text-blue-600')}
+      >
+        {saveStatus.autosaved ? '자동 백업됨' : '자동 백업'}
       </span>
-      <span className={saveStatus.finalSaved ? 'text-green-600 font-semibold' : 'text-gray-300'}>
-        ✓ Final Saved
-      </span>
-      <span className={saveStatus.exported ? 'text-purple-600 font-semibold' : 'text-gray-300'}>
-        ↓ Exported
+      <span
+        title="참가자 데이터를 JSON 파일로 내보냈습니다."
+        className={pill(saveStatus.exported, null, null, 'border-purple-200 bg-purple-50 text-purple-600')}
+      >
+        {saveStatus.exported ? '파일 내보냄 ✓' : '파일 내보내기'}
       </span>
     </div>
   )
@@ -946,15 +955,16 @@ function TurnRow({ turn }) {
 }
 
 // ── PhaseTag ─────────────────────────────────────────────────
+// Workflow stage of the current trial.
 function PhaseTag({ phase }) {
   const map = {
-    setup:        { label: 'SETUP',        bg: 'bg-gray-100 text-gray-600' },
-    trial_active: { label: 'TRIAL ACTIVE', bg: 'bg-green-100 text-green-700' },
-    review:       { label: 'REVIEW',       bg: 'bg-amber-100 text-amber-700' },
-    saved:        { label: 'SAVED',        bg: 'bg-blue-100 text-blue-700' },
+    setup:        { label: '준비',      bg: 'bg-gray-100 text-gray-600',  tip: '참가자 정보·시나리오를 설정하고 Trial을 시작하세요.' },
+    trial_active: { label: '진행 중',   bg: 'bg-green-100 text-green-700', tip: '실험 진행 중 — 대화가 실시간으로 기록됩니다.' },
+    review:       { label: '검토',      bg: 'bg-amber-100 text-amber-700', tip: 'STT/AI 응답 보정·메모를 입력하고 Final Save 하세요.' },
+    saved:        { label: '저장 완료', bg: 'bg-blue-100 text-blue-700',  tip: '이 Trial이 저장소에 확정 저장되었습니다.' },
   }
-  const { label = phase.toUpperCase(), bg = 'bg-gray-100 text-gray-600' } = map[phase] ?? {}
+  const { label = phase, bg = 'bg-gray-100 text-gray-600', tip = '' } = map[phase] ?? {}
   return (
-    <span className={`text-xs font-semibold rounded px-2 py-0.5 ${bg}`}>{label}</span>
+    <span title={tip} className={`text-xs font-semibold rounded px-2 py-0.5 ${bg}`}>{label}</span>
   )
 }
