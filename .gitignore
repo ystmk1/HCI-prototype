@@ -6,3 +6,7 @@ dist/
 .env.local
 .env.*.local
 node_modules
+
+# Handover notes (local only)
+HANDOVER-*.md
+handover*.md
