@@ -33,3 +33,47 @@ create policy "insert examples"
   on public.prompt_examples
   for insert
   with check (true);
+
+
+-- ───────────────────────────────────────────────────────────────────────────
+-- Editable prompt fragments (operator console → live).
+-- Key-value store for the persona / scenario-context prompts that gemini.js
+-- builds. When a key is absent the app falls back to its hardcoded default, so
+-- this table is optional — the app works the same without it.
+--   keys: 'system_base', 'system_context_wrapper',
+--         'scenario_context__<scenarioId>'  (one per scenario)
+-- ───────────────────────────────────────────────────────────────────────────
+create table if not exists public.app_prompts (
+  key        text primary key,
+  content    text not null,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.app_prompts enable row level security;
+
+-- Prototype: the anon (publishable) key may read and upsert prompt config.
+-- Tighten (require auth) before any public deployment.
+drop policy if exists "read prompts" on public.app_prompts;
+create policy "read prompts"
+  on public.app_prompts
+  for select
+  using (true);
+
+drop policy if exists "insert prompts" on public.app_prompts;
+create policy "insert prompts"
+  on public.app_prompts
+  for insert
+  with check (true);
+
+drop policy if exists "update prompts" on public.app_prompts;
+create policy "update prompts"
+  on public.app_prompts
+  for update
+  using (true)
+  with check (true);
+
+drop policy if exists "delete prompts" on public.app_prompts;
+create policy "delete prompts"
+  on public.app_prompts
+  for delete
+  using (true);

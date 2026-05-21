@@ -4,6 +4,7 @@ import { SCENARIOS, getScenarioById } from '../data/scenarios'
 import * as sessionLogger from '../services/sessionLogger'
 import { contributeExamples } from '../services/promptExamples'
 import { isSupabaseEnabled } from '../services/supabase'
+import PromptEditor from './PromptEditor'
 
 const FONT = "'Pretendard Variable', 'Pretendard', system-ui, sans-serif"
 
@@ -465,6 +466,9 @@ export default function OperatorConsole() {
             HMI 화면과 실시간 동기화됩니다. 초기화 시 참가자 화면의 대화가 비워집니다.
           </p>
         </SectionCard>
+
+        {/* ── Prompt editor (persona + scenario context → Supabase, live) ── */}
+        <PromptEditor />
 
         {/* ── SETUP phase ────────────────────────────────── */}
         {experimentPhase === 'setup' && (
