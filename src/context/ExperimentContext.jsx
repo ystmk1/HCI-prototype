@@ -154,8 +154,46 @@ export function ExperimentProvider({ children }) {
   }, [])
 
   // ── Operator: start trial ────────────────────────────────
+  // dev=true → prompt-development session: no real participant, no counters,
+  // never persisted to the participant store. Only used to drive the HMI and
+  // contribute corrected examples to the Supabase prompt pool.
   const startTrial = useCallback(
-    ({ ageRange, drivingExperience, scenarioId }) => {
+    ({ ageRange, drivingExperience, scenarioId, dev = false }) => {
+      const scenario = getScenarioById(scenarioId)
+      const now = new Date().toISOString()
+
+      if (dev) {
+        const participant = { participantId: 'DEV', ageRange: null, drivingExperience: null, dev: true }
+        setCurrentParticipant(participant)
+        sessionLogger.saveCurrentParticipant(participant)
+
+        const trial = {
+          trialId: `DEV_T${Date.now().toString().slice(-6)}`,
+          sessionId: `DEV_${now}`,
+          dev: true,
+          scenario: {
+            scenarioId: scenario.scenarioId,
+            scenarioName: scenario.scenarioName,
+            scenarioGroup: scenario.scenarioGroup,
+            targetAffect: scenario.targetAffect,
+          },
+          status: 'active',
+          timing: { startTime: now, endTime: null },
+          conversationTurns: [],
+          operatorReview: { valid: false, memo: '', failureReason: '', editHistory: [] },
+        }
+        setCurrentTrial(trial)
+        setActiveScenario(scenario)
+        setLiveConversationTurns([])
+        turnCounterRef.current = 0
+        setExperimentPhase('trial_active')
+        setSaveStatus({ autosaved: false, finalSaved: false, exported: false })
+        sessionLogger.saveCurrentTrial(trial)
+        sessionLogger.saveCurrentTurns([])
+        broadcast(BC.START_TRIAL, { trial, scenarioId, scenarioContext: scenario.scenarioContext })
+        return
+      }
+
       const participantId = currentParticipant?.participantId ?? nextParticipantId
 
       // Resolve or create participant
@@ -171,8 +209,6 @@ export function ExperimentProvider({ children }) {
       sessionLogger.commitTrial(participantId)
 
       const sessionId = sessionLogger.generateSessionId(participantId, trialId)
-      const scenario = getScenarioById(scenarioId)
-      const now = new Date().toISOString()
 
       const trial = {
         trialId,
@@ -243,6 +279,8 @@ export function ExperimentProvider({ children }) {
       const participant = currentParticipant
       const trial = currentTrialRef.current
       if (!participant || !trial) return { success: false, error: 'No active session' }
+      // Dev sessions are never persisted to the participant store.
+      if (trial.dev) return { success: false, error: '개발 세션은 저장하지 않습니다. 프롬프트 풀에 기여만 가능합니다.' }
 
       const turns = liveConversationTurnsRef.current.map((t) => ({
         ...t,
@@ -334,6 +372,22 @@ export function ExperimentProvider({ children }) {
     setActiveScenario(null)
     setHmiResetNonce((n) => n + 1)
     broadcast(BC.INITIALIZE_HMI)
+  }, [broadcast])
+
+  // ── Discard current session (dev session end / abort) ───
+  // Clears everything back to a clean setup without saving. Counters untouched.
+  const discardSession = useCallback(() => {
+    setCurrentTrial(null)
+    setCurrentParticipant(null)
+    setLiveConversationTurns([])
+    setActiveScenario(null)
+    turnCounterRef.current = 0
+    setExperimentPhase('setup')
+    setSaveStatus({ autosaved: false, finalSaved: false, exported: false })
+    sessionLogger.clearCurrentSession()
+    localStorage.removeItem('exp_current_participant')
+    setHmiResetNonce((n) => n + 1)
+    broadcast(BC.RESET_HMI)
   }, [broadcast])
 
   // ── Scenario control (mirrors HMI Alt+Q / Alt+W) ─────────
@@ -484,6 +538,7 @@ export function ExperimentProvider({ children }) {
     markExported,
     setScenario,
     resetHmi,
+    discardSession,
     // HMI logging functions
     addPendingTurn,
     completeTurn,

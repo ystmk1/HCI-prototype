@@ -58,15 +58,21 @@ function SectionCard({ title, children }) {
 function Btn({ onClick, disabled, variant = 'primary', size = 'md', title, children }) {
   const base = 'rounded-lg font-medium transition-colors focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed'
   const sizes = { sm: 'px-3 py-1.5 text-xs', md: 'px-4 py-2 text-sm', lg: 'px-5 py-2.5 text-sm' }
-  // Minimal palette: dark for primary actions, soft red for destructive,
-  // neutral for everything else.
+  // Hierarchy via the HMI key color (#2d7cf1):
+  //   primary  — filled key   → THE main action of a screen / selected toggle
+  //   accent   — key outline  → notable secondary / forward navigation
+  //   outline  — neutral      → supporting actions
+  //   ghost    — text only    → minor / utility
+  //   danger   — red          → destructive
   const variants = {
-    primary:  'bg-gray-900 text-white hover:bg-gray-800 disabled:hover:bg-gray-900',
-    success:  'bg-gray-900 text-white hover:bg-gray-800 disabled:hover:bg-gray-900',
+    primary:  'bg-[#2d7cf1] text-white hover:bg-[#1f6fe5] disabled:hover:bg-[#2d7cf1]',
+    accent:   'border border-[#2d7cf1] text-[#2d7cf1] bg-white hover:bg-blue-50',
+    outline:  'border border-gray-200 text-gray-600 bg-white hover:bg-gray-50',
+    ghost:    'text-gray-400 hover:bg-gray-100 hover:text-gray-600',
     danger:   'bg-red-500 text-white hover:bg-red-600 disabled:hover:bg-red-500',
-    warning:  'border border-gray-200 text-gray-700 bg-white hover:bg-gray-50',
-    outline:  'border border-gray-200 text-gray-700 bg-white hover:bg-gray-50',
-    ghost:    'text-gray-500 hover:bg-gray-100',
+    // legacy aliases (kept so older call sites don't break)
+    success:  'bg-[#2d7cf1] text-white hover:bg-[#1f6fe5] disabled:hover:bg-[#2d7cf1]',
+    warning:  'border border-gray-200 text-gray-600 bg-white hover:bg-gray-50',
   }
   return (
     <button
@@ -127,11 +133,16 @@ export default function OperatorConsole() {
     doFinalSave,
     addAnotherTrial,
     startNewParticipant,
-    initializeHMI,
     markExported,
     setScenario,
     resetHmi,
+    discardSession,
   } = useExperiment()
+
+  // Prompt-development mode: no real participant, contributions go to the
+  // prompt pool only (nothing saved to the participant dataset).
+  const [mode, setMode] = useState('experiment') // 'experiment' | 'dev'
+  const isDev = currentTrial?.dev || currentParticipant?.dev
 
   // ── Setup form ────────────────────────────────────────────
   const [setupForm, setSetupForm] = useState({
@@ -289,6 +300,14 @@ export default function OperatorConsole() {
 
   const handleStartTrial = () => {
     const { ageRange, drivingExperience, scenarioId } = setupForm
+    if (mode === 'dev') {
+      if (!scenarioId) {
+        alert('시나리오를 선택해주세요.')
+        return
+      }
+      startTrial({ scenarioId, dev: true })
+      return
+    }
     if (!ageRange || !drivingExperience || !scenarioId) {
       alert('나이대, 운전경험, 시나리오를 모두 선택해주세요.')
       return
@@ -377,12 +396,6 @@ export default function OperatorConsole() {
     startNewParticipant()
   }
 
-  const handleInitializeHMI = () => {
-    const ok = window.confirm('HMI 화면을 초기화합니다. 저장된 로그는 유지됩니다. 계속하시겠습니까?')
-    if (!ok) return
-    initializeHMI()
-  }
-
   // ── Render ────────────────────────────────────────────────
 
   return (
@@ -396,6 +409,14 @@ export default function OperatorConsole() {
             {currentTrial ? ` / ${currentTrial.trialId}` : ''}
           </span>
           <PhaseTag phase={experimentPhase} />
+          {isDev && (
+            <span
+              title="프롬프트 개발 세션 — 참가자 데이터로 저장되지 않습니다."
+              className="text-xs font-semibold rounded px-2 py-0.5 bg-purple-100 text-purple-700"
+            >
+              개발 모드
+            </span>
+          )}
         </div>
         <StatusBadge saveStatus={saveStatus} />
       </header>
@@ -431,7 +452,12 @@ export default function OperatorConsole() {
             >
               수막현상 (Alt+W)
             </Btn>
-            <Btn size="sm" variant="ghost" onClick={resetHmi}>
+            <Btn
+              size="sm"
+              variant="ghost"
+              onClick={resetHmi}
+              title="참가자 화면(HMI)을 대기 화면으로 되돌리고 시나리오를 해제합니다. 저장된 기록에는 영향 없음."
+            >
               상황 초기화 (Alt+R)
             </Btn>
           </div>
@@ -443,71 +469,102 @@ export default function OperatorConsole() {
         {/* ── SETUP phase ────────────────────────────────── */}
         {experimentPhase === 'setup' && (
           <>
-            <SectionCard title="참가자 정보">
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">
-                    Participant ID
-                  </label>
-                  <div className="text-sm font-mono font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded px-3 py-2 inline-block">
-                    {displayParticipantId}
-                    <span className="ml-2 text-xs font-normal text-blue-400">
-                      (다음 Trial: {displayTrialId})
-                    </span>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-500 mb-1">나이대</label>
-                    <select
-                      className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
-                      value={setupForm.ageRange}
-                      disabled={!!currentParticipant}
-                      onChange={(e) => setSetupForm((p) => ({ ...p, ageRange: e.target.value }))}
-                    >
-                      <option value="">선택</option>
-                      {AGE_RANGES.map((v) => <option key={v}>{v}</option>)}
-                    </select>
-                    {currentParticipant && (
-                      <p className="text-xs text-gray-400 mt-1">동일 참가자 — 수정 불가</p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-500 mb-1">운전경험</label>
-                    <select
-                      className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
-                      value={setupForm.drivingExperience}
-                      disabled={!!currentParticipant}
-                      onChange={(e) => setSetupForm((p) => ({ ...p, drivingExperience: e.target.value }))}
-                    >
-                      <option value="">선택</option>
-                      {DRIVING_EXP.map((v) => <option key={v}>{v}</option>)}
-                    </select>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">시나리오</label>
-                  <select
-                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
-                    value={setupForm.scenarioId}
-                    onChange={(e) => setSetupForm((p) => ({ ...p, scenarioId: e.target.value }))}
+            <SectionCard title="모드">
+              <div className="flex bg-gray-100 rounded-lg p-1 max-w-xs">
+                {[
+                  { k: 'experiment', label: '실험' },
+                  { k: 'dev', label: '프롬프트 개발' },
+                ].map((m) => (
+                  <button
+                    key={m.k}
+                    onClick={() => setMode(m.k)}
+                    className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                      mode === m.k ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
+                    }`}
                   >
-                    <option value="">선택</option>
-                    {SCENARIOS.map((s) => (
-                      <option key={s.scenarioId} value={s.scenarioId}>
-                        {s.scenarioName} ({s.targetAffect})
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                    {m.label}
+                  </button>
+                ))}
               </div>
+              {mode === 'dev' && (
+                <p className="text-xs text-gray-400 mt-2">
+                  참가자 정보 없이 시나리오만으로 진행합니다. 데이터는 저장되지 않고,
+                  보정한 답변을 <b>프롬프트 풀(Supabase)</b>에만 기여합니다.
+                </p>
+              )}
+            </SectionCard>
+
+            {mode === 'experiment' && (
+              <SectionCard title="참가자 정보">
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">참가자 번호</label>
+                    <div className="text-sm font-mono font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded px-3 py-2 inline-block">
+                      {displayParticipantId}
+                      <span className="ml-2 text-xs font-normal text-blue-400">
+                        (다음 시험: {displayTrialId})
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">나이대</label>
+                      <select
+                        className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+                        value={setupForm.ageRange}
+                        disabled={!!currentParticipant}
+                        onChange={(e) => setSetupForm((p) => ({ ...p, ageRange: e.target.value }))}
+                      >
+                        <option value="">선택</option>
+                        {AGE_RANGES.map((v) => <option key={v}>{v}</option>)}
+                      </select>
+                      {currentParticipant && (
+                        <p className="text-xs text-gray-400 mt-1">동일 참가자 — 수정 불가</p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">운전경험</label>
+                      <select
+                        className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+                        value={setupForm.drivingExperience}
+                        disabled={!!currentParticipant}
+                        onChange={(e) => setSetupForm((p) => ({ ...p, drivingExperience: e.target.value }))}
+                      >
+                        <option value="">선택</option>
+                        {DRIVING_EXP.map((v) => <option key={v}>{v}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </SectionCard>
+            )}
+
+            <SectionCard title="시나리오">
+              <select
+                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+                value={setupForm.scenarioId}
+                onChange={(e) => setSetupForm((p) => ({ ...p, scenarioId: e.target.value }))}
+              >
+                <option value="">선택</option>
+                {SCENARIOS.map((s) => (
+                  <option key={s.scenarioId} value={s.scenarioId}>
+                    {s.scenarioName} ({s.targetAffect})
+                  </option>
+                ))}
+              </select>
             </SectionCard>
 
             <div className="flex gap-2">
-              <Btn onClick={handleStartTrial} variant="primary" size="lg" title="입력한 참가자 정보와 시나리오로 새 시험을 시작하고 대화 기록을 켭니다.">
-                시험 시작
+              <Btn
+                onClick={handleStartTrial}
+                variant="primary"
+                size="lg"
+                title={mode === 'dev'
+                  ? '참가자 없이 시나리오만으로 개발 세션을 시작합니다.'
+                  : '입력한 참가자 정보와 시나리오로 새 시험을 시작하고 대화 기록을 켭니다.'}
+              >
+                {mode === 'dev' ? '개발 세션 시작' : '시험 시작'}
               </Btn>
             </div>
           </>
@@ -811,15 +868,32 @@ export default function OperatorConsole() {
               </SectionCard>
             )}
 
+            {isDev && (
+              <p className="text-xs text-purple-600 bg-purple-50 border border-purple-100 rounded-lg px-3 py-2 mb-3">
+                개발 세션입니다. 참가자 데이터로 저장되지 않습니다. 턴별 “AI 응답 보정”을 입력하고
+                <b> 프롬프트 풀에 기여</b>로 반영하세요.
+              </p>
+            )}
             <div className="flex gap-2 flex-wrap">
+              {!isDev && (
+                <Btn
+                  onClick={handleFinalSave}
+                  variant="primary"
+                  size="lg"
+                  disabled={saveStatus.finalSaved}
+                  title="검토·보정한 내용을 이 참가자 기록에 확정 저장합니다."
+                >
+                  {saveStatus.finalSaved ? '저장됨' : '최종 저장'}
+                </Btn>
+              )}
               <Btn
-                onClick={handleFinalSave}
-                variant="success"
-                size="lg"
-                disabled={saveStatus.finalSaved}
-                title="검토·보정한 내용을 이 참가자 기록에 확정 저장합니다."
+                onClick={handleContribute}
+                variant={isDev ? 'primary' : 'accent'}
+                size={isDev ? 'lg' : 'md'}
+                disabled={!isSupabaseEnabled}
+                title="보정한 예시를 Supabase 프롬프트 풀에 올립니다. 이후 같은 시나리오 답변에 자동 반영됩니다."
               >
-                {saveStatus.finalSaved ? '저장됨' : '최종 저장'}
+                프롬프트 풀에 기여
               </Btn>
               <Btn
                 onClick={handleExportMarkdown}
@@ -838,22 +912,23 @@ export default function OperatorConsole() {
                 프롬프트 예시 (.json)
               </Btn>
               <Btn
-                onClick={handleContribute}
-                variant="primary"
-                size="md"
-                disabled={!isSupabaseEnabled}
-                title="보정한 예시를 Supabase 프롬프트 풀에 올립니다. 이후 같은 시나리오 답변에 자동 반영됩니다."
-              >
-                프롬프트 풀에 기여
-              </Btn>
-              <Btn
                 onClick={handleDebugExport}
                 variant="ghost"
                 size="md"
-                title="저장 전 현재 시험 데이터 원본(JSON)을 개발·디버깅용으로 내려받습니다."
+                title="현재 데이터 원본(JSON)을 개발·디버깅용으로 내려받습니다."
               >
                 디버그 JSON
               </Btn>
+              {isDev && (
+                <Btn
+                  onClick={discardSession}
+                  variant="ghost"
+                  size="md"
+                  title="개발 세션을 종료하고 설정 화면으로 돌아갑니다. (저장 안 함)"
+                >
+                  개발 세션 종료
+                </Btn>
+              )}
             </div>
             {contributeMsg && (
               <p className="text-xs text-gray-500 mt-2">{contributeMsg}</p>
@@ -935,15 +1010,6 @@ export default function OperatorConsole() {
 
             <div className="border-t border-gray-200 pt-4 flex gap-2 flex-wrap">
               <Btn
-                onClick={handleAddAnotherTrial}
-                variant="outline"
-                size="md"
-                disabled={!saveStatus.finalSaved}
-                title="같은 참가자로 다음 시험을 이어서 진행합니다."
-              >
-                같은 참가자 · 시험 추가
-              </Btn>
-              <Btn
                 onClick={handleStartNewParticipant}
                 variant="primary"
                 size="md"
@@ -952,12 +1018,13 @@ export default function OperatorConsole() {
                 다음 참가자
               </Btn>
               <Btn
-                onClick={handleInitializeHMI}
-                variant="ghost"
+                onClick={handleAddAnotherTrial}
+                variant="accent"
                 size="md"
-                title="참가자 화면(HMI)을 초기 대기 화면으로 되돌립니다. 저장된 기록은 유지됩니다."
+                disabled={!saveStatus.finalSaved}
+                title="같은 참가자로 다음 시험을 이어서 진행합니다."
               >
-                화면 초기화
+                같은 참가자 · 시험 추가
               </Btn>
             </div>
           </>
