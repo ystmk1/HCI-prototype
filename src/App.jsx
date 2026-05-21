@@ -35,6 +35,10 @@ import OperatorConsole from './components/OperatorConsole'
 
 const TTS_KEY = import.meta.env.VITE_GOOGLE_TTS_API_KEY
 
+// Delay before reopening the mic after a spoken reply, so the TTS audio has
+// finished and the wake-word recognizer has released the mic.
+const FOLLOWUP_LISTEN_DELAY_MS = 500
+
 const SUGGESTIONS = [
   '현재 경로 확인',
   '경로 변경',
@@ -100,6 +104,8 @@ function VehicleHMI() {
   const screenRef = useRef(null)
   const speedLevelRef = useRef(DEFAULT_SPEED_LEVEL)
   const speakingRateRef = useRef(SPEED_LEVELS[DEFAULT_SPEED_LEVEL])
+  const isListeningRef = useRef(false)         // mirror of isListening for async callbacks
+  const lastInputMethodRef = useRef('text')    // 'voice' arms the post-response follow-up
 
   // Fit the fixed 1920×1080 screen to the display, preserving aspect ratio.
   useEffect(() => {
@@ -287,7 +293,18 @@ function VehicleHMI() {
 
       if (displayText && TTS_KEY) {
         speakText(displayText, TTS_KEY, speakingRateRef.current)
-          .then(() => { if (turnId) markTtsPlayed(turnId) })
+          .then(() => {
+            if (turnId) markTtsPlayed(turnId)
+            // Conversational follow-up: after speaking a reply to a voice turn,
+            // reopen the mic briefly so the user can continue without saying the
+            // wake word again. If they stay silent, STT ends and the wake-word
+            // listener resumes on its own.
+            if (lastInputMethodRef.current === 'voice' && !isListeningRef.current) {
+              setTimeout(() => {
+                if (!isListeningRef.current) startListening()
+              }, FOLLOWUP_LISTEN_DELAY_MS)
+            }
+          })
           .catch((err) => { if (turnId) markTtsError(turnId, err.message) })
       }
     } catch (err) {
@@ -305,6 +322,7 @@ function VehicleHMI() {
   const sendMessage = async (text, inputMethod = 'text') => {
     const trimmed = text.trim()
     if (!trimmed) return
+    lastInputMethodRef.current = inputMethod
     setMessages((prev) => [...prev, { id: Date.now(), type: 'user', text: trimmed }])
     setInputText('')
 
@@ -320,11 +338,14 @@ function VehicleHMI() {
   }
 
   // ── Web Speech API (STT) ──────────────────────────────────
-  const handleMicClick = () => {
-    if (isListening) {
-      recognitionRef.current?.stop()
-      return
-    }
+  // Keep a ref mirror so async callbacks (TTS completion, wake word) read the
+  // live listening state instead of a stale closure value.
+  useEffect(() => {
+    isListeningRef.current = isListening
+  }, [isListening])
+
+  const startListening = () => {
+    if (isListeningRef.current) return
 
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SR) {
@@ -357,6 +378,14 @@ function VehicleHMI() {
     rec.onend = () => setIsListening(false)
 
     rec.start()
+  }
+
+  const handleMicClick = () => {
+    if (isListeningRef.current) {
+      recognitionRef.current?.stop()
+      return
+    }
+    startListening()
   }
 
   // ── Handle voice mic click on idle screen ─────────────────
