@@ -26,21 +26,33 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+html,
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
+  height: 100%;
+}
+
+body {
   min-width: 320px;
-  min-height: 100vh;
   background-color: #000;
-  overflow: hidden;
+  overflow-x: hidden;
 }
 
 #root {
-  width: 1920px;
-  height: 1080px;
-  margin: 0 auto;
   position: relative;
+  width: 100%;
+  min-height: 100vh;
+}
+
+/* ── HMI viewport: fits the fixed 1920×1080 screen to the display ──
+   Letterboxes (black bars) on non-16:9 displays, never scrolls. */
+.hmi-viewport {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
   overflow: hidden;
 }
 
@@ -49,6 +61,8 @@ body {
   position: relative;
   width: 1920px;
   height: 1080px;
+  flex-shrink: 0;
+  transform-origin: center center;
   overflow: hidden;
   border-radius: 32px;
   background: var(--bg-primary);

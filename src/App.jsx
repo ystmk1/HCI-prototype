@@ -99,8 +99,20 @@ function VehicleHMI() {
 
   const messagesEndRef = useRef(null)
   const recognitionRef = useRef(null)
+  const screenRef = useRef(null)
   const speedLevelRef = useRef(DEFAULT_SPEED_LEVEL)
   const speakingRateRef = useRef(SPEED_LEVELS[DEFAULT_SPEED_LEVEL])
+
+  // Fit the fixed 1920×1080 screen to the display, preserving aspect ratio.
+  useEffect(() => {
+    const fit = () => {
+      const scale = Math.min(window.innerWidth / 1920, window.innerHeight / 1080)
+      if (screenRef.current) screenRef.current.style.transform = `scale(${scale})`
+    }
+    fit()
+    window.addEventListener('resize', fit)
+    return () => window.removeEventListener('resize', fit)
+  }, [])
 
   // ── Experiment logging (driven by Operator Console) ────────
   const {
@@ -143,19 +155,29 @@ function VehicleHMI() {
         return
       }
 
-      const altShift = e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey
-      if (altShift && e.code === 'KeyQ') {
+      // Local dev scenario shortcuts (Alt + single key).
+      const altOnly = e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey
+      if (altOnly && e.code === 'KeyQ') {
+        // 회전교차로 반복 주행 상황
         e.preventDefault()
         setScenarioContext('현재는 완전자율주행(Lv5) 상황입니다. 차량(AI)이 회전교차로를 통과하던 중, 우측 차선에 차가 너무 많아 안전하게 끼어들어 목적지 방향으로 빠져나가지 못했습니다. 그래서 차량 스스로 판단하여 교차로를 한 바퀴 더 도는 중입니다. 탑승자가 "왜 안 가?", "왜 돌아가?" 등으로 물어보면, 당신이 자동차 자체가 된 것처럼 "차량이 많아 끼어들지 못해 안전을 위해 한 바퀴 더 돌고 있습니다"라고 차분하게 답변해주세요. 사람을 달래듯 말하지 말고, 시스템의 주행 판단 결과를 보고하듯 명확하고 정중하게 답하세요.')
         setHasShownScenarioCard(false)
-        console.log('Scenario 1 Triggered (Alt+Shift+Q): Autonomous Roundabout Reroute')
-      } else if (altShift && e.code === 'KeyA') {
+        console.log('Scenario: 회전교차로 반복 주행 (Alt+Q)')
+      } else if (altOnly && e.code === 'KeyW') {
+        // 빗길 수막현상 상황
+        e.preventDefault()
+        setScenarioContext('현재는 완전자율주행(Lv5) 상황입니다. 차량이 빗길 주행 중 노면에서 수막현상(hydroplaning) 가능성을 감지하여 자동으로 속도를 줄이고 있습니다. 탑승자가 "왜 이렇게 느려?", "무슨 일이야?", "위험한 거야?" 같은 질문을 하면, 당신이 자동차 자체가 된 것처럼 현재 상황을 명확하고 차분하게 설명해주세요. 시스템의 주행 판단 결과를 보고하듯 정중하고 명확하게 답하세요.')
+        setHasShownScenarioCard(false)
+        console.log('Scenario: 빗길 수막현상 (Alt+W)')
+      } else if (altOnly && e.code === 'KeyR') {
+        // 상황 리셋
         e.preventDefault()
         setScenarioContext('')
         setHasShownScenarioCard(false)
         setShowCarStatus(false)
-        console.log('Scenario Reset (Alt+Shift+A): Default prompt restored')
-      } else if (altShift && e.code === 'KeyW') {
+        console.log('Scenario Reset (Alt+R)')
+      } else if (altOnly && e.code === 'KeyA') {
+        // CTA 채팅 팝업 (우회 선택지)
         e.preventDefault()
         if (effectiveContext !== '') {
           setMessages(msgs => {
@@ -163,7 +185,7 @@ function VehicleHMI() {
             if (msgs.length > 0 && msgs[msgs.length - 1].text === '다른 경로로 우회할까요?') {
               return msgs
             }
-            console.log('Scenario Option Triggered (Alt+Shift+W): Showing detour options')
+            console.log('CTA popup (Alt+A): Showing detour options')
             return [...msgs, {
               id: Date.now(),
               type: 'ai-card',
@@ -354,7 +376,8 @@ function VehicleHMI() {
   ]
 
   return (
-    <div className="screen">
+    <div className="hmi-viewport">
+      <div className="screen" ref={screenRef}>
       {/* ── Rotated Background Image ─────────────────────────── */}
       <div className="bg-rotated-image">
         <img src={imgBg40} alt="" />
@@ -735,6 +758,7 @@ function VehicleHMI() {
           <ControlPanel onClose={() => setIsControlPanelOpen(false)} />
         )}
       </AnimatePresence>
+      </div>
     </div>
   )
 }
