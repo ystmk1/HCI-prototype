@@ -134,6 +134,15 @@ function VehicleHMI() {
 
   useEffect(() => {
     const handleKeyDown = (e) => {
+      // Ctrl+Alt+Shift+O → open the operator console in its own window.
+      // Triple-modifier chord: identical on Windows/Mac, no OS/browser conflict.
+      if (e.ctrlKey && e.altKey && e.shiftKey && e.code === 'KeyO') {
+        e.preventDefault()
+        window.open('/operator', 'operator_console')
+        console.log('Operator Console opened (Ctrl+Alt+Shift+O)')
+        return
+      }
+
       const altShift = e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey
       if (altShift && e.code === 'KeyQ') {
         e.preventDefault()
