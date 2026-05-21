@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { useExperiment } from '../context/ExperimentContext'
 import { SCENARIOS, getScenarioById } from '../data/scenarios'
 import * as sessionLogger from '../services/sessionLogger'
+import { contributeExamples } from '../services/promptExamples'
+import { isSupabaseEnabled } from '../services/supabase'
 
 const FONT = "'Pretendard Variable', 'Pretendard', system-ui, sans-serif"
 
@@ -315,6 +317,32 @@ export default function OperatorConsole() {
     if (!currentTrial) return
     const scenario = getScenarioById(reviewForm.scenarioId) ?? getScenarioById(currentTrial?.scenario?.scenarioId)
     sessionLogger.exportPromptJSON(buildEnrichedTrial(), reviewParticipant, scenario)
+  }
+
+  // Push operator-corrected (user → ideal AI) pairs to Supabase so they feed
+  // the dynamic few-shot loop for future Gemini responses.
+  const [contributeMsg, setContributeMsg] = useState('')
+  const handleContribute = async () => {
+    const scenario = getScenarioById(reviewForm.scenarioId) ?? getScenarioById(currentTrial?.scenario?.scenarioId)
+    const rows = buildEnrichedTurns()
+      .filter((t) => t.aiIdealResponse && (t.userCorrectedTranscript || t.userRawTranscript))
+      .map((t) => ({
+        scenario_id: scenario?.scenarioId ?? null,
+        target_affect: scenario?.targetAffect ?? null,
+        user_input: t.userCorrectedTranscript || t.userRawTranscript,
+        ideal_response: t.aiIdealResponse,
+        actual_response: t.aiResponse ?? null,
+      }))
+
+    if (rows.length === 0) {
+      setContributeMsg('기여할 항목이 없습니다 — 턴별 "AI 응답 보정"을 먼저 입력하세요.')
+      return
+    }
+    setContributeMsg('업로드 중…')
+    const result = await contributeExamples(rows)
+    if (result.success) setContributeMsg(`✓ ${result.count}개 예시를 프롬프트 풀에 반영했습니다.`)
+    else if (result.skipped) setContributeMsg('Supabase 미설정 — .env에 URL/KEY를 추가하세요.')
+    else setContributeMsg(`실패: ${result.error}`)
   }
 
   const handleAddAnotherTrial = () => {
@@ -778,10 +806,26 @@ export default function OperatorConsole() {
               <Btn onClick={handleExportPrompt} variant="outline" size="md">
                 ↓ 프롬프트 데이터 (.json)
               </Btn>
+              <Btn
+                onClick={handleContribute}
+                variant="primary"
+                size="md"
+                disabled={!isSupabaseEnabled}
+              >
+                ↑ 프롬프트 풀에 기여
+              </Btn>
               <Btn onClick={handleDebugExport} variant="ghost" size="md">
                 Debug JSON
               </Btn>
             </div>
+            {contributeMsg && (
+              <p className="text-xs text-gray-500 mt-2">{contributeMsg}</p>
+            )}
+            {!isSupabaseEnabled && (
+              <p className="text-xs text-gray-400 mt-1">
+                Supabase 연결 시 보정 예시가 누적되어 이후 AI 응답에 자동 반영됩니다.
+              </p>
+            )}
           </>
         )}
 

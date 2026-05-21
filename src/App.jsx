@@ -216,7 +216,7 @@ function VehicleHMI() {
 
     try {
       const needsCard = effectiveContext !== '' && !hasShownScenarioCard
-      let aiText = await getGeminiResponse(text, effectiveContext, needsCard, speedLevelRef.current)
+      let aiText = await getGeminiResponse(text, effectiveContext, needsCard, speedLevelRef.current, activeScenario?.scenarioId)
       setIsAITyping(false)
 
       const aiTimestamp = new Date().toISOString()

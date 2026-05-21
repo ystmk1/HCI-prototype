@@ -1,5 +1,19 @@
+import { fetchApprovedExamples } from './promptExamples'
+
 const MODEL = 'gemini-2.5-flash'
 const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`
+
+// Build a few-shot block from operator-curated examples (Supabase).
+function buildFewShotBlock(examples) {
+  if (!examples?.length) return ''
+  const body = examples
+    .map(
+      (e, i) =>
+        `예시 ${i + 1})\n[사용자] ${e.user_input}\n[이상적 답변] ${e.ideal_response}`
+    )
+    .join('\n\n')
+  return `\n\n[참고 예시 — 아래 답변들의 톤·길이·표현 방식을 최대한 따르세요]\n${body}`
+}
 
 const SYSTEM_PROMPT = `당신은 차량 내비게이션에 탑재된 AI 어시스턴트입니다.
 - 사용자가 말한 내용을 반복하지 말고 바로 본론만 답하세요.
@@ -65,7 +79,7 @@ async function callOnce(text, apiKey, customPrompt = SYSTEM_PROMPT) {
   return parts.find((p) => p.text)?.text ?? ''
 }
 
-export async function getGeminiResponse(text, context = '', needsScenarioCard = false, currentSpeedLevel = 'normal') {
+export async function getGeminiResponse(text, context = '', needsScenarioCard = false, currentSpeedLevel = 'normal', scenarioId = null) {
   if (KEYS.length === 0) {
     throw new Error('API 키가 설정되지 않았습니다 (VITE_GEMINI_API_KEYS)')
   }
@@ -91,6 +105,17 @@ ${context}
   }
 
   finalPrompt += SPEED_INSTRUCTIONS + `\n현재 음성 속도 레벨: ${currentSpeedLevel}`
+
+  // Dynamic few-shot: inject operator-curated examples for this scenario (no-op
+  // when Supabase isn't configured or there are no approved examples yet).
+  if (scenarioId) {
+    try {
+      const examples = await fetchApprovedExamples(scenarioId)
+      finalPrompt += buildFewShotBlock(examples)
+    } catch (e) {
+      console.warn('[gemini] few-shot fetch skipped:', e?.message ?? e)
+    }
+  }
 
   let lastStatus = null
   for (let i = 0; i < KEYS.length; i++) {
