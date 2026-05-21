@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { useExperiment } from '../context/ExperimentContext'
-import { SCENARIOS } from '../data/scenarios'
+import { SCENARIOS, getScenarioById } from '../data/scenarios'
 import * as sessionLogger from '../services/sessionLogger'
+
+const FONT = "'Pretendard Variable', 'Pretendard', system-ui, sans-serif"
 
 // ── Option data ───────────────────────────────────────────────
 const AGE_RANGES = ['10대 이하', '20대', '30대', '40대', '50대', '60대 이상']
@@ -140,6 +142,13 @@ export default function OperatorConsole() {
   // ── End trial modal ───────────────────────────────────────
   const [endModal, setEndModal] = useState({ open: false, status: 'completed', failureReason: '' })
 
+  // ── Mid-experiment memo (editable during the active trial) ──
+  const [liveMemo, setLiveMemo] = useState('')
+  useEffect(() => {
+    // Reset the running memo when starting a fresh participant/trial setup.
+    if (experimentPhase === 'setup') setLiveMemo('')
+  }, [experimentPhase])
+
   // ── Review form ───────────────────────────────────────────
   const [reviewForm, setReviewForm] = useState({
     ageRange: '',
@@ -150,6 +159,7 @@ export default function OperatorConsole() {
     valid: true,
     failureReason: '',
     correctedTranscripts: {},
+    correctedResponses: {},
   })
   const [editHistory, setEditHistory] = useState([])
   const prevReviewRef = useRef({})
@@ -167,10 +177,12 @@ export default function OperatorConsole() {
       drivingExperience: currentParticipant?.drivingExperience ?? '',
       scenarioId: currentTrial?.scenario?.scenarioId ?? '',
       trialStatus: resolvedStatus,
-      memo: currentTrial?.operatorReview?.memo ?? '',
+      // Carry the mid-experiment memo into the review memo.
+      memo: currentTrial?.operatorReview?.memo || liveMemo,
       valid: derivedValid,
       failureReason: currentTrial?.operatorReview?.failureReason ?? '',
       correctedTranscripts: {},
+      correctedResponses: {},
     }
     setReviewForm(form)
     prevReviewRef.current = form
@@ -204,6 +216,52 @@ export default function OperatorConsole() {
         newValue,
       },
     ])
+  }
+
+  const updateCorrectedResponse = (turnId, newValue) => {
+    const oldValue = reviewForm.correctedResponses[turnId] ?? null
+    if (oldValue === newValue) return
+    setReviewForm((prev) => ({
+      ...prev,
+      correctedResponses: { ...prev.correctedResponses, [turnId]: newValue },
+    }))
+    setEditHistory((prev) => [
+      ...prev,
+      {
+        timestamp: new Date().toISOString(),
+        field: 'aiIdealResponse',
+        turnId,
+        oldValue,
+        newValue,
+      },
+    ])
+  }
+
+  // Build conversation turns enriched with operator corrections.
+  const buildEnrichedTurns = () =>
+    liveConversationTurns.map((t) => ({
+      ...t,
+      userCorrectedTranscript: reviewForm.correctedTranscripts?.[t.turnId] ?? null,
+      aiIdealResponse: reviewForm.correctedResponses?.[t.turnId] ?? null,
+    }))
+
+  const buildEnrichedTrial = () => ({
+    ...currentTrial,
+    status: reviewForm.trialStatus ?? currentTrial?.status,
+    conversationTurns: buildEnrichedTurns(),
+    operatorReview: {
+      ...(currentTrial?.operatorReview ?? {}),
+      valid: reviewForm.valid,
+      memo: reviewForm.memo,
+      failureReason: reviewForm.failureReason,
+      editHistory,
+    },
+  })
+
+  const reviewParticipant = {
+    participantId: currentParticipant?.participantId,
+    ageRange: reviewForm.ageRange || currentParticipant?.ageRange,
+    drivingExperience: reviewForm.drivingExperience || currentParticipant?.drivingExperience,
   }
 
   // ── Derived display info ──────────────────────────────────
@@ -247,11 +305,19 @@ export default function OperatorConsole() {
 
   const handleDebugExport = () => {
     if (!currentTrial) return
-    const turns = liveConversationTurns.map((t) => ({
-      ...t,
-      userCorrectedTranscript: reviewForm.correctedTranscripts?.[t.turnId] ?? null,
-    }))
-    sessionLogger.exportTrialDebugJSON({ ...currentTrial, conversationTurns: turns })
+    sessionLogger.exportTrialDebugJSON(buildEnrichedTrial())
+  }
+
+  const handleExportMarkdown = () => {
+    if (!currentTrial) return
+    const scenario = getScenarioById(reviewForm.scenarioId) ?? getScenarioById(currentTrial?.scenario?.scenarioId)
+    sessionLogger.exportTrialMarkdown(buildEnrichedTrial(), reviewParticipant, scenario)
+  }
+
+  const handleExportPrompt = () => {
+    if (!currentTrial) return
+    const scenario = getScenarioById(reviewForm.scenarioId) ?? getScenarioById(currentTrial?.scenario?.scenarioId)
+    sessionLogger.exportPromptJSON(buildEnrichedTrial(), reviewParticipant, scenario)
   }
 
   const handleAddAnotherTrial = () => {
@@ -281,7 +347,7 @@ export default function OperatorConsole() {
   // ── Render ────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col" style={{ fontFamily: 'system-ui, sans-serif' }}>
+    <div className="min-h-screen bg-gray-50 flex flex-col" style={{ fontFamily: FONT }}>
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap items-center justify-between gap-y-2 sticky top-0 z-10">
         <div className="flex items-center gap-4 flex-wrap">
@@ -441,6 +507,16 @@ export default function OperatorConsole() {
                   ))}
                 </div>
               )}
+            </SectionCard>
+
+            <SectionCard title="실시간 메모">
+              <textarea
+                rows={3}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400 resize-none"
+                placeholder="실험 진행 중 관찰 내용을 메모하세요. 종료 후 Review 메모로 이어집니다."
+                value={liveMemo}
+                onChange={(e) => setLiveMemo(e.target.value)}
+              />
             </SectionCard>
 
             <div className="flex gap-2">
@@ -647,15 +723,27 @@ export default function OperatorConsole() {
                         />
                       </div>
 
-                      {/* AI response (read-only) */}
+                      {/* AI response (read-only original) */}
                       {turn.aiResponse && (
-                        <div>
+                        <div className="mb-2">
                           <div className="text-xs text-gray-400 mb-0.5">AI 응답 (원본 — 수정불가)</div>
                           <div className="text-sm text-gray-700 bg-blue-50 border border-blue-100 rounded px-3 py-2">
                             {turn.aiResponse}
                           </div>
                         </div>
                       )}
+
+                      {/* Ideal AI response (editable — feeds prompt engineering) */}
+                      <div>
+                        <div className="text-xs text-gray-400 mb-0.5">AI 응답 보정 (이상적 답변 — 프롬프트 엔지니어링용)</div>
+                        <textarea
+                          rows={2}
+                          className="w-full border border-dashed border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400 bg-white resize-none"
+                          placeholder="이 상황에서 이상적인 AI 답변을 입력하면 프롬프트 개선 데이터로 내보내집니다"
+                          value={reviewForm.correctedResponses[turn.turnId] ?? ''}
+                          onChange={(e) => updateCorrectedResponse(turn.turnId, e.target.value)}
+                        />
+                      </div>
 
                       {/* Error info */}
                       {turn.status === 'failed' && turn.error && (
@@ -687,8 +775,14 @@ export default function OperatorConsole() {
               <Btn onClick={handleFinalSave} variant="success" size="lg" disabled={saveStatus.finalSaved}>
                 {saveStatus.finalSaved ? '✓ Saved' : '💾 Final Save'}
               </Btn>
-              <Btn onClick={handleDebugExport} variant="outline" size="md">
-                Debug Export (미저장)
+              <Btn onClick={handleExportMarkdown} variant="outline" size="md">
+                ↓ Trial 로그 (.md)
+              </Btn>
+              <Btn onClick={handleExportPrompt} variant="outline" size="md">
+                ↓ 프롬프트 데이터 (.json)
+              </Btn>
+              <Btn onClick={handleDebugExport} variant="ghost" size="md">
+                Debug JSON
               </Btn>
             </div>
           </>
@@ -731,10 +825,16 @@ export default function OperatorConsole() {
 
             <div className="flex gap-2 flex-wrap mb-6">
               <Btn onClick={handleExport} variant="primary" size="lg">
-                ↓ Export Participant JSON
+                ↓ Participant JSON
               </Btn>
-              <Btn onClick={handleDebugExport} variant="outline" size="md">
-                Debug Export (Trial)
+              <Btn onClick={handleExportMarkdown} variant="outline" size="md">
+                ↓ Trial 로그 (.md)
+              </Btn>
+              <Btn onClick={handleExportPrompt} variant="outline" size="md">
+                ↓ 프롬프트 데이터 (.json)
+              </Btn>
+              <Btn onClick={handleDebugExport} variant="ghost" size="md">
+                Debug JSON
               </Btn>
             </div>
 

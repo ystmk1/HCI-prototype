@@ -247,6 +247,7 @@ export function ExperimentProvider({ children }) {
       const turns = liveConversationTurnsRef.current.map((t) => ({
         ...t,
         userCorrectedTranscript: reviewForm.correctedTranscripts?.[t.turnId] ?? null,
+        aiIdealResponse: reviewForm.correctedResponses?.[t.turnId] ?? null,
       }))
 
       const resolvedScenario = getScenarioById(reviewForm.scenarioId)

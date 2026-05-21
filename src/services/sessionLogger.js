@@ -130,8 +130,8 @@ const getDateStr = () => {
   return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
 }
 
-const downloadJSON = (data, filename) => {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+const downloadBlob = (content, mime, filename) => {
+  const blob = new Blob([content], { type: mime })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -142,6 +142,9 @@ const downloadJSON = (data, filename) => {
   URL.revokeObjectURL(url)
 }
 
+const downloadJSON = (data, filename) =>
+  downloadBlob(JSON.stringify(data, null, 2), 'application/json', filename)
+
 export const exportParticipantJSON = (participantId) => {
   const session = getParticipantSession(participantId)
   if (!session) return false
@@ -151,4 +154,113 @@ export const exportParticipantJSON = (participantId) => {
 
 export const exportTrialDebugJSON = (trial) => {
   downloadJSON(trial, `debug_${trial.trialId}_${getDateStr()}.json`)
+}
+
+// ── Markdown export (full human-readable trial log, incl. memo) ──
+// `trial.conversationTurns` are expected to be enriched with
+// userCorrectedTranscript / aiIdealResponse before calling.
+export const exportTrialMarkdown = (trial, participant, scenario) => {
+  const fmt = (iso) => (iso ? new Date(iso).toLocaleString('ko-KR') : '—')
+  const turns = trial.conversationTurns ?? []
+  const review = trial.operatorReview ?? {}
+  const lines = []
+
+  lines.push(`# Trial Log — ${trial.trialId}`)
+  lines.push('')
+  lines.push(`- **Session:** \`${trial.sessionId ?? '—'}\``)
+  lines.push(`- **Participant:** ${participant?.participantId ?? '—'} (${participant?.ageRange ?? '—'} / ${participant?.drivingExperience ?? '—'})`)
+  lines.push(`- **Scenario:** ${scenario?.scenarioName ?? trial.scenario?.scenarioName ?? '—'} (${scenario?.targetAffect ?? trial.scenario?.targetAffect ?? '—'} · \`${scenario?.scenarioId ?? trial.scenario?.scenarioId ?? '—'}\`)`)
+  lines.push(`- **Status:** ${trial.status ?? '—'}${review.valid === false ? ' · ⚠️ invalid' : ''}`)
+  lines.push(`- **Start:** ${fmt(trial.timing?.startTime)}`)
+  lines.push(`- **End:** ${fmt(trial.timing?.endTime)}`)
+  lines.push(`- **Turns:** ${turns.length}`)
+  if (review.failureReason) lines.push(`- **Failure reason:** ${review.failureReason}`)
+  lines.push('')
+
+  lines.push('## Memo')
+  lines.push('')
+  lines.push(review.memo ? review.memo : '_(없음)_')
+  lines.push('')
+
+  if (scenario?.scenarioContext) {
+    lines.push('## Scenario Context (prompt)')
+    lines.push('')
+    lines.push('> ' + scenario.scenarioContext.replace(/\n/g, '\n> '))
+    lines.push('')
+  }
+
+  lines.push('## Conversation')
+  lines.push('')
+  if (turns.length === 0) {
+    lines.push('_(기록된 대화 없음)_')
+  } else {
+    turns.forEach((t, i) => {
+      const meta = [t.inputMethod, t.responseLatencyMs != null ? `${t.responseLatencyMs}ms` : null, t.status]
+        .filter(Boolean)
+        .join(' · ')
+      lines.push(`### Turn ${i + 1} \`${t.turnId}\`${meta ? ` — ${meta}` : ''}`)
+      lines.push(`- **User (raw):** ${t.userRawTranscript || '—'}`)
+      if (t.userCorrectedTranscript) lines.push(`- **User (corrected):** ${t.userCorrectedTranscript}`)
+      if (t.aiResponse) lines.push(`- **AI (actual):** ${t.aiResponse}`)
+      if (t.aiIdealResponse) lines.push(`- **AI (ideal):** ${t.aiIdealResponse}`)
+      if (t.ttsError) lines.push(`- **TTS error:** ${t.ttsError}`)
+      if (t.error) lines.push(`- **Error:** ${t.error}`)
+      lines.push('')
+    })
+  }
+
+  if ((review.editHistory ?? []).length > 0) {
+    lines.push('## Edit History')
+    lines.push('')
+    review.editHistory.forEach((e) => {
+      lines.push(`- \`${new Date(e.timestamp).toLocaleTimeString('ko-KR')}\` **${e.field}**${e.turnId ? ` (${e.turnId})` : ''}: ${JSON.stringify(e.oldValue)} → ${JSON.stringify(e.newValue)}`)
+    })
+    lines.push('')
+  }
+
+  downloadBlob(lines.join('\n'), 'text/markdown', `trial_${trial.trialId}_${getDateStr()}.md`)
+}
+
+// ── Prompt-engineering dataset (corrected STT + ideal AI responses) ──
+// Produces few-shot-ready examples to refine the Gemini system prompt.
+export const exportPromptJSON = (trial, participant, scenario) => {
+  const turns = trial.conversationTurns ?? []
+  const examples = turns
+    .filter((t) => t.userRawTranscript)
+    .map((t) => {
+      const user = t.userCorrectedTranscript || t.userRawTranscript
+      const assistantIdeal = t.aiIdealResponse || t.aiResponse || ''
+      return {
+        turnId: t.turnId,
+        inputMethod: t.inputMethod,
+        user,
+        userRaw: t.userRawTranscript,
+        sttCorrected: Boolean(t.userCorrectedTranscript),
+        assistantActual: t.aiResponse ?? '',
+        assistantIdeal,
+        responseEdited: Boolean(t.aiIdealResponse && t.aiIdealResponse !== t.aiResponse),
+      }
+    })
+
+  const dataset = {
+    exportedAt: new Date().toISOString(),
+    purpose: 'gemini-prompt-engineering',
+    scenario: {
+      scenarioId: scenario?.scenarioId ?? trial.scenario?.scenarioId ?? null,
+      scenarioName: scenario?.scenarioName ?? trial.scenario?.scenarioName ?? null,
+      scenarioGroup: scenario?.scenarioGroup ?? trial.scenario?.scenarioGroup ?? null,
+      targetAffect: scenario?.targetAffect ?? trial.scenario?.targetAffect ?? null,
+      scenarioContext: scenario?.scenarioContext ?? null,
+    },
+    participant: {
+      ageRange: participant?.ageRange ?? null,
+      drivingExperience: participant?.drivingExperience ?? null,
+    },
+    trialId: trial.trialId,
+    memo: trial.operatorReview?.memo ?? '',
+    exampleCount: examples.length,
+    examples,
+  }
+
+  downloadJSON(dataset, `prompt_${trial.trialId}_${getDateStr()}.json`)
 }
