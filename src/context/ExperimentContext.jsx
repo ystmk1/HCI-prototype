@@ -11,6 +11,8 @@ export const BC = {
   INITIALIZE_HMI:    'INITIALIZE_HMI',
   TURN_CREATED:      'TURN_CREATED',
   TURN_UPDATED:      'TURN_UPDATED',
+  SET_SCENARIO:      'SET_SCENARIO',   // operator/HMI set current scenario
+  RESET_HMI:         'RESET_HMI',      // wipe HMI chat/popups back to idle
 }
 
 const ExperimentContext = createContext(null)
@@ -47,6 +49,8 @@ export function ExperimentProvider({ children }) {
   const [nextParticipantId, setNextParticipantId] = useState(
     () => sessionLogger.generateNextParticipantId()
   )
+  // Bumped to signal the HMI to wipe its chat/popups back to the idle screen.
+  const [hmiResetNonce, setHmiResetNonce] = useState(0)
 
   // ── Refs (stable across renders, not reactive) ───────────
   const channelRef = useRef(null)
@@ -94,6 +98,8 @@ export function ExperimentProvider({ children }) {
             return updated
           })
           setExperimentPhase('review')
+          // Trial ended → wipe the participant HMI back to the idle screen.
+          setHmiResetNonce((n) => n + 1)
           break
         }
         case BC.INITIALIZE_HMI: {
@@ -104,6 +110,16 @@ export function ExperimentProvider({ children }) {
           setSaveStatus({ autosaved: false, finalSaved: false, exported: false })
           turnCounterRef.current = 0
           sessionLogger.clearCurrentSession()
+          setHmiResetNonce((n) => n + 1)
+          break
+        }
+        case BC.SET_SCENARIO: {
+          setActiveScenario(payload.scenarioId ? getScenarioById(payload.scenarioId) : null)
+          break
+        }
+        case BC.RESET_HMI: {
+          setActiveScenario(null)
+          setHmiResetNonce((n) => n + 1)
           break
         }
         case BC.TURN_CREATED: {
@@ -314,7 +330,26 @@ export function ExperimentProvider({ children }) {
 
   // ── Operator: initialize HMI display ────────────────────
   const initializeHMI = useCallback(() => {
+    setActiveScenario(null)
+    setHmiResetNonce((n) => n + 1)
     broadcast(BC.INITIALIZE_HMI)
+  }, [broadcast])
+
+  // ── Scenario control (mirrors HMI Alt+Q / Alt+W) ─────────
+  // Works from either window; both stay in sync via BroadcastChannel.
+  const setScenario = useCallback(
+    (scenarioId) => {
+      setActiveScenario(scenarioId ? getScenarioById(scenarioId) : null)
+      broadcast(BC.SET_SCENARIO, { scenarioId: scenarioId ?? null })
+    },
+    [broadcast]
+  )
+
+  // ── Reset HMI to idle (mirrors HMI Alt+R) ────────────────
+  const resetHmi = useCallback(() => {
+    setActiveScenario(null)
+    setHmiResetNonce((n) => n + 1)
+    broadcast(BC.RESET_HMI)
   }, [broadcast])
 
   // ── Operator: mark exported ──────────────────────────────
@@ -437,6 +472,7 @@ export function ExperimentProvider({ children }) {
     activeScenario,
     saveStatus,
     nextParticipantId,
+    hmiResetNonce,
     // Operator functions
     startTrial,
     endTrial,
@@ -445,6 +481,8 @@ export function ExperimentProvider({ children }) {
     startNewParticipant,
     initializeHMI,
     markExported,
+    setScenario,
+    resetHmi,
     // HMI logging functions
     addPendingTurn,
     completeTurn,

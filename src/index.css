@@ -29,13 +29,11 @@
 html,
 body {
   margin: 0;
-  height: 100%;
 }
 
 body {
   min-width: 320px;
   background-color: #000;
-  overflow-x: hidden;
 }
 
 #root {
@@ -64,7 +62,6 @@ body {
   flex-shrink: 0;
   transform-origin: center center;
   overflow: hidden;
-  border-radius: 32px;
   background: var(--bg-primary);
   font-family: 'Pretendard Variable', 'Pretendard', sans-serif;
 }

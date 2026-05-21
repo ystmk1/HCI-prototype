@@ -93,8 +93,6 @@ function VehicleHMI() {
   const [activeApp, setActiveApp] = useState(null)
   const [isControlPanelOpen, setIsControlPanelOpen] = useState(false)
 
-  // Local dev scenario (Alt+Shift+Q/A/W); operator's activeScenario takes precedence.
-  const [scenarioContext, setScenarioContext] = useState('')
   const [hasShownScenarioCard, setHasShownScenarioCard] = useState(false)
 
   const messagesEndRef = useRef(null)
@@ -114,9 +112,12 @@ function VehicleHMI() {
     return () => window.removeEventListener('resize', fit)
   }, [])
 
-  // ── Experiment logging (driven by Operator Console) ────────
+  // ── Experiment logging + scenario control (synced w/ Operator) ──
   const {
     activeScenario,
+    hmiResetNonce,
+    setScenario,
+    resetHmi,
     addPendingTurn,
     completeTurn,
     failTurn,
@@ -124,13 +125,24 @@ function VehicleHMI() {
     markTtsError,
   } = useExperiment()
 
-  // Operator scenario context takes precedence over local dev context.
-  const effectiveContext = activeScenario?.scenarioContext ?? scenarioContext
+  // Single source of truth for the active scenario (synced across windows).
+  const effectiveContext = activeScenario?.scenarioContext ?? ''
 
-  // Reset the roundabout card flag when the operator switches scenario.
+  // Reset the roundabout card flag when the scenario switches.
   useEffect(() => {
     setHasShownScenarioCard(false)
   }, [activeScenario?.scenarioId])
+
+  // Operator ended the trial / reset → wipe the HMI back to the idle screen.
+  useEffect(() => {
+    if (hmiResetNonce === 0) return
+    setMessages([])
+    setInputText('')
+    setShowCarStatus(false)
+    setActiveApp(null)
+    setIsControlPanelOpen(false)
+    setHasShownScenarioCard(false)
+  }, [hmiResetNonce])
 
   const formatTime = (date) =>
     date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
@@ -155,26 +167,22 @@ function VehicleHMI() {
         return
       }
 
-      // Local dev scenario shortcuts (Alt + single key).
+      // Scenario shortcuts (Alt + single key) — synced to the Operator Console.
       const altOnly = e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey
       if (altOnly && e.code === 'KeyQ') {
         // 회전교차로 반복 주행 상황
         e.preventDefault()
-        setScenarioContext('현재는 완전자율주행(Lv5) 상황입니다. 차량(AI)이 회전교차로를 통과하던 중, 우측 차선에 차가 너무 많아 안전하게 끼어들어 목적지 방향으로 빠져나가지 못했습니다. 그래서 차량 스스로 판단하여 교차로를 한 바퀴 더 도는 중입니다. 탑승자가 "왜 안 가?", "왜 돌아가?" 등으로 물어보면, 당신이 자동차 자체가 된 것처럼 "차량이 많아 끼어들지 못해 안전을 위해 한 바퀴 더 돌고 있습니다"라고 차분하게 답변해주세요. 사람을 달래듯 말하지 말고, 시스템의 주행 판단 결과를 보고하듯 명확하고 정중하게 답하세요.')
-        setHasShownScenarioCard(false)
+        setScenario('frustration_roundabout_loop')
         console.log('Scenario: 회전교차로 반복 주행 (Alt+Q)')
       } else if (altOnly && e.code === 'KeyW') {
         // 빗길 수막현상 상황
         e.preventDefault()
-        setScenarioContext('현재는 완전자율주행(Lv5) 상황입니다. 차량이 빗길 주행 중 노면에서 수막현상(hydroplaning) 가능성을 감지하여 자동으로 속도를 줄이고 있습니다. 탑승자가 "왜 이렇게 느려?", "무슨 일이야?", "위험한 거야?" 같은 질문을 하면, 당신이 자동차 자체가 된 것처럼 현재 상황을 명확하고 차분하게 설명해주세요. 시스템의 주행 판단 결과를 보고하듯 정중하고 명확하게 답하세요.')
-        setHasShownScenarioCard(false)
+        setScenario('anxiety_hydroplaning')
         console.log('Scenario: 빗길 수막현상 (Alt+W)')
       } else if (altOnly && e.code === 'KeyR') {
-        // 상황 리셋
+        // 상황 리셋 (HMI 초기화)
         e.preventDefault()
-        setScenarioContext('')
-        setHasShownScenarioCard(false)
-        setShowCarStatus(false)
+        resetHmi()
         console.log('Scenario Reset (Alt+R)')
       } else if (altOnly && e.code === 'KeyA') {
         // CTA 채팅 팝업 (우회 선택지)
@@ -198,7 +206,7 @@ function VehicleHMI() {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [effectiveContext])
+  }, [effectiveContext, setScenario, resetHmi])
 
   // ── Gemini + TTS ──────────────────────────────────────────
   // turnId / turnStartMs are passed from sendMessage for experiment logging;

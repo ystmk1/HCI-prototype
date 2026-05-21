@@ -103,6 +103,7 @@ export default function OperatorConsole() {
     experimentPhase,
     saveStatus,
     nextParticipantId,
+    activeScenario,
     startTrial,
     endTrial,
     doFinalSave,
@@ -110,6 +111,8 @@ export default function OperatorConsole() {
     startNewParticipant,
     initializeHMI,
     markExported,
+    setScenario,
+    resetHmi,
   } = useExperiment()
 
   // ── Setup form ────────────────────────────────────────────
@@ -280,8 +283,8 @@ export default function OperatorConsole() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col" style={{ fontFamily: 'system-ui, sans-serif' }}>
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between sticky top-0 z-10">
-        <div className="flex items-center gap-4">
+      <header className="bg-white border-b border-gray-200 px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap items-center justify-between gap-y-2 sticky top-0 z-10">
+        <div className="flex items-center gap-4 flex-wrap">
           <h1 className="text-base font-bold text-gray-800 tracking-tight">Operator Console</h1>
           <span className="text-xs text-gray-400 font-mono border border-gray-200 rounded px-2 py-0.5">
             {displayParticipantId}
@@ -292,7 +295,45 @@ export default function OperatorConsole() {
         <StatusBadge saveStatus={saveStatus} />
       </header>
 
-      <main className="flex-1 max-w-3xl mx-auto w-full px-4 py-6">
+      <main className="flex-1 w-full max-w-3xl xl:max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+        {/* ── HMI scenario control (mirrors Alt+Q / Alt+W / Alt+R) ── */}
+        <SectionCard title="HMI 상황 제어">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2 mr-2">
+              <span className="text-xs text-gray-500">현재 상황</span>
+              <span
+                className={`text-sm font-semibold px-2.5 py-1 rounded ${
+                  activeScenario
+                    ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                    : 'bg-gray-100 text-gray-400'
+                }`}
+              >
+                {activeScenario ? activeScenario.scenarioName : '없음 (대기)'}
+              </span>
+            </div>
+            <Btn
+              size="sm"
+              variant={activeScenario?.scenarioId === 'frustration_roundabout_loop' ? 'primary' : 'outline'}
+              onClick={() => setScenario('frustration_roundabout_loop')}
+            >
+              회전교차로 (Alt+Q)
+            </Btn>
+            <Btn
+              size="sm"
+              variant={activeScenario?.scenarioId === 'anxiety_hydroplaning' ? 'primary' : 'outline'}
+              onClick={() => setScenario('anxiety_hydroplaning')}
+            >
+              수막현상 (Alt+W)
+            </Btn>
+            <Btn size="sm" variant="ghost" onClick={resetHmi}>
+              상황 초기화 (Alt+R)
+            </Btn>
+          </div>
+          <p className="text-xs text-gray-400 mt-2">
+            HMI 화면과 실시간 동기화됩니다. 초기화 시 참가자 화면의 대화가 비워집니다.
+          </p>
+        </SectionCard>
 
         {/* ── SETUP phase ────────────────────────────────── */}
         {experimentPhase === 'setup' && (
@@ -311,7 +352,7 @@ export default function OperatorConsole() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-gray-500 mb-1">나이대</label>
                     <select
@@ -481,7 +522,7 @@ export default function OperatorConsole() {
                   </select>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-gray-500 mb-1">나이대</label>
                     <select
@@ -671,7 +712,7 @@ export default function OperatorConsole() {
 
             {/* Summary */}
             <SectionCard title="Trial 요약">
-              <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
                 <div><span className="text-gray-400 text-xs">참가자</span><br />{currentParticipant?.participantId}</div>
                 <div><span className="text-gray-400 text-xs">Trial</span><br />{currentTrial?.trialId}</div>
                 <div><span className="text-gray-400 text-xs">시나리오</span><br />{currentTrial?.scenario?.scenarioName}</div>
