@@ -11,11 +11,13 @@ const FONT = "'Pretendard Variable', 'Pretendard', system-ui, sans-serif"
 const AGE_RANGES = ['10대 이하', '20대', '30대', '40대', '50대', '60대 이상']
 const DRIVING_EXP = ['무경험', '1년 미만', '1-3년', '3-10년', '10년 이상']
 const TRIAL_STATUSES = [
-  { value: 'completed', label: '완료 (completed)', color: 'text-green-700' },
-  { value: 'failed',    label: '실패 (failed)',    color: 'text-red-600' },
-  { value: 'invalid',   label: '무효 (invalid)',   color: 'text-orange-500' },
-  { value: 'aborted',   label: '중단 (aborted)',   color: 'text-gray-500' },
+  { value: 'completed', label: '완료', color: 'text-gray-700' },
+  { value: 'failed',    label: '실패', color: 'text-red-600' },
+  { value: 'invalid',   label: '무효', color: 'text-gray-500' },
+  { value: 'aborted',   label: '중단', color: 'text-gray-500' },
 ]
+
+const STATUS_LABELS = { completed: '완료', failed: '실패', invalid: '무효', aborted: '중단' }
 
 // ── Helper components ─────────────────────────────────────────
 
@@ -53,21 +55,24 @@ function SectionCard({ title, children }) {
   )
 }
 
-function Btn({ onClick, disabled, variant = 'primary', size = 'md', children }) {
-  const base = 'rounded font-medium transition-colors focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed'
+function Btn({ onClick, disabled, variant = 'primary', size = 'md', title, children }) {
+  const base = 'rounded-lg font-medium transition-colors focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed'
   const sizes = { sm: 'px-3 py-1.5 text-xs', md: 'px-4 py-2 text-sm', lg: 'px-5 py-2.5 text-sm' }
+  // Minimal palette: dark for primary actions, soft red for destructive,
+  // neutral for everything else.
   const variants = {
-    primary:  'bg-blue-600 text-white hover:bg-blue-700 disabled:hover:bg-blue-600',
-    danger:   'bg-red-600 text-white hover:bg-red-700 disabled:hover:bg-red-600',
-    warning:  'bg-amber-500 text-white hover:bg-amber-600 disabled:hover:bg-amber-500',
-    ghost:    'bg-gray-100 text-gray-700 hover:bg-gray-200',
-    success:  'bg-green-600 text-white hover:bg-green-700 disabled:hover:bg-green-600',
-    outline:  'border border-gray-300 text-gray-700 bg-white hover:bg-gray-50',
+    primary:  'bg-gray-900 text-white hover:bg-gray-800 disabled:hover:bg-gray-900',
+    success:  'bg-gray-900 text-white hover:bg-gray-800 disabled:hover:bg-gray-900',
+    danger:   'bg-red-500 text-white hover:bg-red-600 disabled:hover:bg-red-500',
+    warning:  'border border-gray-200 text-gray-700 bg-white hover:bg-gray-50',
+    outline:  'border border-gray-200 text-gray-700 bg-white hover:bg-gray-50',
+    ghost:    'text-gray-500 hover:bg-gray-100',
   }
   return (
     <button
       onClick={onClick}
       disabled={disabled}
+      title={title}
       className={`${base} ${sizes[size]} ${variants[variant]}`}
     >
       {children}
@@ -385,7 +390,7 @@ export default function OperatorConsole() {
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap items-center justify-between gap-y-2 sticky top-0 z-10">
         <div className="flex items-center gap-4 flex-wrap">
-          <h1 className="text-base font-bold text-gray-800 tracking-tight">Operator Console</h1>
+          <h1 className="text-base font-bold text-gray-800 tracking-tight">오퍼레이터 콘솔</h1>
           <span className="text-xs text-gray-400 font-mono border border-gray-200 rounded px-2 py-0.5">
             {displayParticipantId}
             {currentTrial ? ` / ${currentTrial.trialId}` : ''}
@@ -501,8 +506,8 @@ export default function OperatorConsole() {
             </SectionCard>
 
             <div className="flex gap-2">
-              <Btn onClick={handleStartTrial} variant="primary" size="lg">
-                ▶ Start Trial
+              <Btn onClick={handleStartTrial} variant="primary" size="lg" title="입력한 참가자 정보와 시나리오로 새 시험을 시작하고 대화 기록을 켭니다.">
+                시험 시작
               </Btn>
             </div>
           </>
@@ -558,8 +563,9 @@ export default function OperatorConsole() {
                 onClick={() => setEndModal({ open: true, status: 'completed', failureReason: '' })}
                 variant="danger"
                 size="lg"
+                title="진행 중인 시험을 끝내고 검토 단계로 넘어갑니다. 참가자 화면은 초기화됩니다."
               >
-                ■ End Trial
+                시험 종료
               </Btn>
             </div>
 
@@ -806,25 +812,47 @@ export default function OperatorConsole() {
             )}
 
             <div className="flex gap-2 flex-wrap">
-              <Btn onClick={handleFinalSave} variant="success" size="lg" disabled={saveStatus.finalSaved}>
-                {saveStatus.finalSaved ? '✓ Saved' : '💾 Final Save'}
+              <Btn
+                onClick={handleFinalSave}
+                variant="success"
+                size="lg"
+                disabled={saveStatus.finalSaved}
+                title="검토·보정한 내용을 이 참가자 기록에 확정 저장합니다."
+              >
+                {saveStatus.finalSaved ? '저장됨' : '최종 저장'}
               </Btn>
-              <Btn onClick={handleExportMarkdown} variant="outline" size="md">
-                ↓ Trial 로그 (.md)
+              <Btn
+                onClick={handleExportMarkdown}
+                variant="outline"
+                size="md"
+                title="이번 시험의 전체 내용(메모·대화·보정·수정 이력)을 읽기 좋은 Markdown 문서로 내려받습니다."
+              >
+                시험 로그 (.md)
               </Btn>
-              <Btn onClick={handleExportPrompt} variant="outline" size="md">
-                ↓ 프롬프트 데이터 (.json)
+              <Btn
+                onClick={handleExportPrompt}
+                variant="outline"
+                size="md"
+                title="보정한 사용자 발화와 이상적 AI 답변을 Gemini 프롬프트 개선용 예시 JSON으로 내려받습니다."
+              >
+                프롬프트 예시 (.json)
               </Btn>
               <Btn
                 onClick={handleContribute}
                 variant="primary"
                 size="md"
                 disabled={!isSupabaseEnabled}
+                title="보정한 예시를 Supabase 프롬프트 풀에 올립니다. 이후 같은 시나리오 답변에 자동 반영됩니다."
               >
-                ↑ 프롬프트 풀에 기여
+                프롬프트 풀에 기여
               </Btn>
-              <Btn onClick={handleDebugExport} variant="ghost" size="md">
-                Debug JSON
+              <Btn
+                onClick={handleDebugExport}
+                variant="ghost"
+                size="md"
+                title="저장 전 현재 시험 데이터 원본(JSON)을 개발·디버깅용으로 내려받습니다."
+              >
+                디버그 JSON
               </Btn>
             </div>
             {contributeMsg && (
@@ -842,27 +870,24 @@ export default function OperatorConsole() {
         {experimentPhase === 'saved' && (
           <>
             <SectionCard title="저장 완료">
-              <div className="flex items-center gap-3 mb-4">
-                <span className="text-2xl">✅</span>
-                <div>
-                  <div className="text-sm font-semibold text-gray-800">
-                    {currentTrial?.trialId} 저장 완료
-                  </div>
-                  <div className="text-xs text-gray-400 font-mono">{currentTrial?.sessionId}</div>
+              <div className="mb-3">
+                <div className="text-sm font-semibold text-gray-800">
+                  {currentTrial?.trialId} 시험이 저장되었습니다
                 </div>
+                <div className="text-xs text-gray-400 font-mono mt-0.5">{currentTrial?.sessionId}</div>
               </div>
               <StatusBadge saveStatus={saveStatus} />
             </SectionCard>
 
             {/* Summary */}
-            <SectionCard title="Trial 요약">
+            <SectionCard title="시험 요약">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
                 <div><span className="text-gray-400 text-xs">참가자</span><br />{currentParticipant?.participantId}</div>
-                <div><span className="text-gray-400 text-xs">Trial</span><br />{currentTrial?.trialId}</div>
+                <div><span className="text-gray-400 text-xs">시험 번호</span><br />{currentTrial?.trialId}</div>
                 <div><span className="text-gray-400 text-xs">시나리오</span><br />{currentTrial?.scenario?.scenarioName}</div>
                 <div><span className="text-gray-400 text-xs">상태</span><br />
-                  <span className={currentTrial?.status === 'completed' ? 'text-green-600' : 'text-orange-500'}>
-                    {currentTrial?.status}
+                  <span className="text-gray-700">
+                    {STATUS_LABELS[currentTrial?.status] ?? currentTrial?.status}
                   </span>
                 </div>
                 <div><span className="text-gray-400 text-xs">대화 턴</span><br />{liveConversationTurns.length}턴</div>
@@ -874,38 +899,65 @@ export default function OperatorConsole() {
             </SectionCard>
 
             <div className="flex gap-2 flex-wrap mb-6">
-              <Btn onClick={handleExport} variant="primary" size="lg">
-                ↓ Participant JSON
+              <Btn
+                onClick={handleExport}
+                variant="primary"
+                size="lg"
+                title="이 참가자의 전체 기록을 JSON 파일로 내려받습니다."
+              >
+                참가자 데이터 (.json)
               </Btn>
-              <Btn onClick={handleExportMarkdown} variant="outline" size="md">
-                ↓ Trial 로그 (.md)
+              <Btn
+                onClick={handleExportMarkdown}
+                variant="outline"
+                size="md"
+                title="이번 시험 내용을 읽기 좋은 Markdown 문서로 내려받습니다."
+              >
+                시험 로그 (.md)
               </Btn>
-              <Btn onClick={handleExportPrompt} variant="outline" size="md">
-                ↓ 프롬프트 데이터 (.json)
+              <Btn
+                onClick={handleExportPrompt}
+                variant="outline"
+                size="md"
+                title="보정한 발화·이상적 답변을 프롬프트 개선용 예시 JSON으로 내려받습니다."
+              >
+                프롬프트 예시 (.json)
               </Btn>
-              <Btn onClick={handleDebugExport} variant="ghost" size="md">
-                Debug JSON
+              <Btn
+                onClick={handleDebugExport}
+                variant="ghost"
+                size="md"
+                title="시험 데이터 원본(JSON)을 개발·디버깅용으로 내려받습니다."
+              >
+                디버그 JSON
               </Btn>
             </div>
 
             <div className="border-t border-gray-200 pt-4 flex gap-2 flex-wrap">
               <Btn
                 onClick={handleAddAnotherTrial}
-                variant="ghost"
+                variant="outline"
                 size="md"
                 disabled={!saveStatus.finalSaved}
+                title="같은 참가자로 다음 시험을 이어서 진행합니다."
               >
-                + Add Another Trial (같은 참가자)
+                같은 참가자 · 시험 추가
               </Btn>
               <Btn
                 onClick={handleStartNewParticipant}
-                variant="warning"
+                variant="primary"
                 size="md"
+                title="현재 참가자를 마치고 다음 참가자 설정 화면으로 넘어갑니다."
               >
-                → Start New Participant
+                다음 참가자
               </Btn>
-              <Btn onClick={handleInitializeHMI} variant="outline" size="md">
-                ↺ Initialize HMI
+              <Btn
+                onClick={handleInitializeHMI}
+                variant="ghost"
+                size="md"
+                title="참가자 화면(HMI)을 초기 대기 화면으로 되돌립니다. 저장된 기록은 유지됩니다."
+              >
+                화면 초기화
               </Btn>
             </div>
           </>
@@ -915,12 +967,12 @@ export default function OperatorConsole() {
 
       {/* Footer info */}
       <footer className="border-t border-gray-200 bg-white px-6 py-2 text-xs text-gray-400 flex gap-4">
-        <span>Participant counter: {sessionLogger.getAllSessions().length} saved</span>
+        <span>저장된 참가자 {sessionLogger.getAllSessions().length}명</span>
         <span>·</span>
         <span>
-          Turns this trial: {liveConversationTurns.length}
+          이번 시험 {liveConversationTurns.length}턴
           {liveConversationTurns.filter(t => t.status === 'pending').length > 0 &&
-            ` (${liveConversationTurns.filter(t => t.status === 'pending').length} pending)`}
+            ` (대기 ${liveConversationTurns.filter(t => t.status === 'pending').length})`}
         </span>
       </footer>
     </div>
