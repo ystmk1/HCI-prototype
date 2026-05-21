@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Flame, Snowflake, Mic, MicOff, ExternalLink, X } from 'lucide-react'
 
@@ -29,6 +30,8 @@ import { speakText, SPEED_LEVELS, DEFAULT_SPEED_LEVEL } from './services/tts'
 import { useWakeWord } from './hooks/useWakeWord'
 import AppView from './components/AppViews'
 import ControlPanel from './components/ControlPanel'
+import { ExperimentProvider, useExperiment } from './context/ExperimentContext'
+import OperatorConsole from './components/OperatorConsole'
 
 const TTS_KEY = import.meta.env.VITE_GOOGLE_TTS_API_KEY
 
@@ -76,9 +79,9 @@ function ListeningWave() {
   )
 }
 
-// ── Main App ───────────────────────────────────────────────
+// ── Vehicle HMI (participant-facing screen) ────────────────
 
-function App() {
+function VehicleHMI() {
   const [messages, setMessages] = useState([])
   const [inputText, setInputText] = useState('')
   const [isListening, setIsListening] = useState(false)
@@ -90,6 +93,7 @@ function App() {
   const [activeApp, setActiveApp] = useState(null)
   const [isControlPanelOpen, setIsControlPanelOpen] = useState(false)
 
+  // Local dev scenario (Alt+Shift+Q/A/W); operator's activeScenario takes precedence.
   const [scenarioContext, setScenarioContext] = useState('')
   const [hasShownScenarioCard, setHasShownScenarioCard] = useState(false)
 
@@ -97,6 +101,24 @@ function App() {
   const recognitionRef = useRef(null)
   const speedLevelRef = useRef(DEFAULT_SPEED_LEVEL)
   const speakingRateRef = useRef(SPEED_LEVELS[DEFAULT_SPEED_LEVEL])
+
+  // ── Experiment logging (driven by Operator Console) ────────
+  const {
+    activeScenario,
+    addPendingTurn,
+    completeTurn,
+    failTurn,
+    markTtsPlayed,
+    markTtsError,
+  } = useExperiment()
+
+  // Operator scenario context takes precedence over local dev context.
+  const effectiveContext = activeScenario?.scenarioContext ?? scenarioContext
+
+  // Reset the roundabout card flag when the operator switches scenario.
+  useEffect(() => {
+    setHasShownScenarioCard(false)
+  }, [activeScenario?.scenarioId])
 
   const formatTime = (date) =>
     date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
@@ -126,7 +148,7 @@ function App() {
         console.log('Scenario Reset (Alt+Shift+A): Default prompt restored')
       } else if (altShift && e.code === 'KeyW') {
         e.preventDefault()
-        if (scenarioContext !== '') {
+        if (effectiveContext !== '') {
           setMessages(msgs => {
             // Prevent duplicate insertion
             if (msgs.length > 0 && msgs[msgs.length - 1].text === '다른 경로로 우회할까요?') {
@@ -145,16 +167,22 @@ function App() {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [scenarioContext])
+  }, [effectiveContext])
 
   // ── Gemini + TTS ──────────────────────────────────────────
-  const callGemini = async (text) => {
+  // turnId / turnStartMs are passed from sendMessage for experiment logging;
+  // null when invoked outside a logged turn.
+  const callGemini = async (text, turnId = null, turnStartMs = null) => {
     setIsAITyping(true)
 
     try {
-      const needsCard = scenarioContext !== '' && !hasShownScenarioCard
-      let aiText = await getGeminiResponse(text, scenarioContext, needsCard, speedLevelRef.current)
+      const needsCard = effectiveContext !== '' && !hasShownScenarioCard
+      let aiText = await getGeminiResponse(text, effectiveContext, needsCard, speedLevelRef.current)
       setIsAITyping(false)
+
+      const aiTimestamp = new Date().toISOString()
+      const responseLatencyMs =
+        turnStartMs != null ? Math.round(performance.now() - turnStartMs) : null
 
       const speedMatch = aiText.match(/\[SPEED:(slow|normal|fast|very_fast)\]/i)
       if (speedMatch) {
@@ -193,6 +221,11 @@ function App() {
 
       const displayText = aiText || '(응답을 받지 못했습니다)'
 
+      // Log the completed turn (text shown to the user).
+      if (turnId) {
+        completeTurn(turnId, { aiResponse: displayText, aiTimestamp, responseLatencyMs })
+      }
+
       setMessages((prev) => {
         let newMessages = [...prev]
         if (selectedOptionMatch) {
@@ -213,10 +246,15 @@ function App() {
         return newMessages
       })
 
-      if (aiText && TTS_KEY) speakText(aiText, TTS_KEY, speakingRateRef.current).catch(console.error)
+      if (displayText && TTS_KEY) {
+        speakText(displayText, TTS_KEY, speakingRateRef.current)
+          .then(() => { if (turnId) markTtsPlayed(turnId) })
+          .catch((err) => { if (turnId) markTtsError(turnId, err.message) })
+      }
     } catch (err) {
       console.error('Gemini error:', err)
       setIsAITyping(false)
+      if (turnId) failTurn(turnId, err.message)
       setMessages((prev) => [
         ...prev,
         { id: Date.now(), type: 'ai', text: `오류: ${err.message}` },
@@ -225,12 +263,21 @@ function App() {
   }
 
   // ── Text send ─────────────────────────────────────────────
-  const sendMessage = async (text) => {
+  const sendMessage = async (text, inputMethod = 'text') => {
     const trimmed = text.trim()
     if (!trimmed) return
     setMessages((prev) => [...prev, { id: Date.now(), type: 'user', text: trimmed }])
     setInputText('')
-    await callGemini(trimmed)
+
+    // Record the user turn (no-op if no trial is active in the operator console).
+    const turnStartMs = performance.now()
+    const turnId = addPendingTurn({
+      userRawTranscript: trimmed,
+      userTimestamp: new Date().toISOString(),
+      inputMethod,
+    })
+
+    await callGemini(trimmed, turnId, turnStartMs)
   }
 
   // ── Web Speech API (STT) ──────────────────────────────────
@@ -260,8 +307,7 @@ function App() {
     rec.onresult = async (e) => {
       const transcript = e.results[0][0].transcript
       setIsListening(false)
-      setMessages((prev) => [...prev, { id: Date.now(), type: 'user', text: transcript }])
-      await callGemini(transcript)
+      await sendMessage(transcript, 'voice')
     }
 
     rec.onerror = (e) => {
@@ -681,6 +727,23 @@ function App() {
         )}
       </AnimatePresence>
     </div>
+  )
+}
+
+// ── App shell: router + experiment provider ────────────────
+// /hmi      → participant-facing vehicle screen (new design)
+// /operator → researcher operator console (drives scenarios, logs sessions)
+function App() {
+  return (
+    <BrowserRouter>
+      <ExperimentProvider>
+        <Routes>
+          <Route path="/hmi" element={<VehicleHMI />} />
+          <Route path="/operator" element={<OperatorConsole />} />
+          <Route path="*" element={<Navigate to="/hmi" replace />} />
+        </Routes>
+      </ExperimentProvider>
+    </BrowserRouter>
   )
 }
 
