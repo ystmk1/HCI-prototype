@@ -39,6 +39,19 @@ const TTS_KEY = import.meta.env.VITE_GOOGLE_TTS_API_KEY
 // finished and the wake-word recognizer has released the mic.
 const FOLLOWUP_LISTEN_DELAY_MS = 500
 
+// In-panel apps the AI can open via the [OPEN_APP:<id>] intent tag. The model
+// emits the canonical English id; aliases are a safety net for stray output.
+const APP_IDS = ['Navigation', 'Phone', 'Music', 'Mail', 'Calendar']
+const APP_ALIASES = {
+  내비: 'Navigation', 내비게이션: 'Navigation', 네비: 'Navigation', 네비게이션: 'Navigation', 지도: 'Navigation', 길안내: 'Navigation',
+  전화: 'Phone', 음악: 'Music', 메일: 'Mail', 이메일: 'Mail', 일정: 'Calendar', 캘린더: 'Calendar', 달력: 'Calendar',
+}
+const resolveAppId = (raw) => {
+  const s = (raw || '').trim()
+  const hit = APP_IDS.find((id) => id.toLowerCase() === s.toLowerCase())
+  return hit || APP_ALIASES[s] || null
+}
+
 const SUGGESTIONS = [
   '현재 경로 확인',
   '경로 변경',
@@ -262,6 +275,22 @@ function VehicleHMI() {
         selectedOptionMatch = selectedMatch[1].trim()
         isConfirmation = true
         aiText = aiText.replace(selectedMatch[0], '').trim()
+      }
+
+      // App control by intent: the model emits [OPEN_APP:<id>] / [CLOSE_APP].
+      const openAppMatch = aiText.match(/\[OPEN_APP:(.*?)\]/i)
+      if (openAppMatch) {
+        const appId = resolveAppId(openAppMatch[1])
+        aiText = aiText.replace(openAppMatch[0], '').trim()
+        if (appId) {
+          setActiveApp(appId)
+          console.log('[app-control] open', appId)
+        }
+      }
+      if (/\[CLOSE_APP\]/i.test(aiText)) {
+        aiText = aiText.replace(/\[CLOSE_APP\]/i, '').trim()
+        setActiveApp(null)
+        console.log('[app-control] close')
       }
 
       const displayText = aiText || '(응답을 받지 못했습니다)'

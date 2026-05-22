@@ -28,29 +28,24 @@ const OPTIONS_LOGIC = `
 
 const SCENARIO_CARD_DIRECTIVE = `\n\n[시스템 제어 명령]\n이번 답변의 맨 마지막에는 화면에 UI 카드를 띄우기 위해 반드시 "[SHOW_ROUNDABOUT_CARD]" 라는 텍스트를 정확히 포함해야 합니다.`
 
+// App control via intent (not keyword matching): the model decides when the
+// user wants to open/close a screen app and emits a structured tag the app
+// parses. Kept in code — the parser depends on these exact tags.
+const APP_CONTROL_LOGIC = `
+
+[앱 제어]
+탑승자가 화면의 앱을 열거나 켜달라고 하면(예: "네비 켜줘", "지도 보여줘", "음악 틀어줘", "전화 앱 열어", "일정 확인해줘"), 짧게 확인하는 답변과 함께 응답 맨 마지막 줄에 정확히 한 개의 태그를 덧붙이세요: [OPEN_APP:<앱ID>]
+사용 가능한 앱ID (왼쪽 영문 ID만 출력): Navigation(내비게이션/지도/길안내), Phone(전화), Music(음악), Mail(메일), Calendar(일정/캘린더)
+앱을 닫아달라고 하면(예: "닫아줘", "꺼줘", "화면 닫아") 응답 맨 마지막 줄에 [CLOSE_APP] 태그를 덧붙이세요.
+앱 제어 요청이 아닐 때는 이 태그들을 절대 출력하지 마세요.
+예: "내비게이션을 켤게요. [OPEN_APP:Navigation]"`
+
 const SPEED_INSTRUCTIONS = `
 
 [음성 속도 제어]
-시스템에서 사용 가능한 음성 속도 레벨은 다음 네 가지입니다 (느림 → 빠름 순):
-slow → normal → fast → very_fast
-
-사용자가 말 속도(말 빠르기, TTS 속도, 목소리 속도 등)를 조절해 달라고 요청하면,
-응답 본문 뒤 맨 마지막 줄에 정확히 한 개의 태그를 덧붙이세요. 예: "[SPEED:fast]"
-
-레벨 선택 규칙 (현재 레벨을 기준으로 한 단계가 아니라, 사용자의 의도에 맞는 절대 레벨을 고르세요):
-- "느리게/천천히" → slow
-- "보통/기본/원래대로/리셋" → normal
-- "빠르게/빨리" → fast
-- "더 빠르게/엄청 빠르게/최대한 빠르게/너무 느려" 또는 이미 fast인 상태에서 더 올려달라는 요청 → very_fast
-- 이미 slow인 상태에서 "더 느리게"는 그대로 slow 유지 (slow가 최저)
-- 이미 very_fast인 상태에서 "더 빠르게"는 그대로 very_fast 유지 (very_fast가 최고)
-
-응답 본문은 짧은 확인만 하세요. 예시:
-- "네, 말 속도를 빠르게 할게요. [SPEED:fast]"
-- "더 빠르게 말할게요. [SPEED:very_fast]"
-- "기본 속도로 돌아갑니다. [SPEED:normal]"
-
-말 속도 요청이 아닐 때는 SPEED 태그를 절대 출력하지 마세요.`
+음성(TTS) 속도는 4단계입니다: slow(느림) · normal(기본) · fast(빠름) · very_fast(가장 빠름).
+탑승자가 말·목소리 속도를 조절하려는 의도를 보이면, 발화 맥락과 아래 현재 레벨을 함께 고려해 의도에 가장 맞는 절대 레벨 하나를 골라 응답 맨 마지막 줄에 정확히 한 개의 태그로 덧붙이세요(예: [SPEED:fast]).
+"빠르게/천천히" 같은 절대 표현이든 "더 빠르게/조금 느리게" 같은 상대 표현이든 자연스럽게 해석하세요(slow가 최저, very_fast가 최고). 본문은 짧게 확인만 하고, 속도 조절 의도가 없으면 SPEED 태그를 절대 출력하지 마세요.`
 
 // 콤마 또는 줄바꿈 어느 방식으로 입력해도 파싱
 const KEYS = (import.meta.env.VITE_GEMINI_API_KEYS ?? '')
@@ -67,7 +62,13 @@ async function callOnce(text, apiKey, customPrompt) {
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: customPrompt }] },
       contents: [{ role: 'user', parts: [{ text }] }],
-      generationConfig: { responseModalities: ['TEXT'] },
+      // thinkingBudget: 0 disables 2.5-flash's pre-response reasoning — these
+      // short conversational replies don't need it, and it's the biggest
+      // latency win without changing the model or response quality.
+      generationConfig: {
+        responseModalities: ['TEXT'],
+        thinkingConfig: { thinkingBudget: 0 },
+      },
     }),
   })
 
@@ -111,6 +112,7 @@ ${OPTIONS_LOGIC}`
     finalPrompt = await getPrompt(PROMPT_KEYS.SYSTEM_BASE)
   }
 
+  finalPrompt += APP_CONTROL_LOGIC
   finalPrompt += SPEED_INSTRUCTIONS + `\n현재 음성 속도 레벨: ${currentSpeedLevel}`
 
   // Dynamic few-shot: inject operator-curated examples for this scenario (no-op

@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  X, Snowflake, Flame, Wind, RotateCcw,
-  Tv, Music, Play, Store, Smartphone, Cloud,
+  X, Snowflake, Flame, Wind, RotateCcw, Cloud,
+  Tv, Music, Play, Store, Smartphone,
+  ArrowLeft, Minus, Plus, Search,
 } from 'lucide-react'
 
 /* Sub-level design tokens — matches AppViews + main screen system */
@@ -21,6 +22,7 @@ const T = {
   accentGlow: 'rgba(45, 124, 241, 0.32)',
   warm: '#e85d5d',
   cool: '#4a90d9',
+  skeleton: '#e7e9ef',
   shadow: '0px 6px 12px rgba(0, 0, 0, 0.08)',
   radiusCard: 32,
   radiusChip: 999,
@@ -30,9 +32,6 @@ const T = {
 /* ─────────── Tile components ─────────── */
 
 function ControlTile({ icon, label, active, accent, onClick }) {
-  // When active, fill the whole tile with an accent gradient (warm = red,
-  // cool = blue, default = key blue). Matches the main confirmation pattern,
-  // no outline stroke.
   const activeBg = accent === T.warm
     ? 'linear-gradient(135deg, #ff7a7a 0%, #e85d5d 100%)'
     : accent === T.cool
@@ -50,11 +49,11 @@ function ControlTile({ icon, label, active, accent, onClick }) {
       style={{
         background: active ? activeBg : T.chipGrad,
         border: active ? 'none' : T.border,
-        borderRadius: 24, cursor: 'pointer',
-        padding: '20px 10px',
-        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
+        borderRadius: 22, cursor: 'pointer',
+        padding: '18px 8px',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 9,
         color: active ? 'white' : T.sub,
-        fontSize: 16, fontWeight: 600, letterSpacing: -0.3,
+        fontSize: 15, fontWeight: 600, letterSpacing: -0.3,
         boxShadow: active ? `0 6px 16px ${activeGlow}` : 'none',
         fontFamily: T.font, lineHeight: 1.3,
         transition: 'background 0.2s',
@@ -112,43 +111,255 @@ function SectionHeader({ title, subtitle }) {
   )
 }
 
+function CategoryLabel({ children }) {
+  return (
+    <div style={{
+      fontSize: 16, fontWeight: 700, color: T.sub, letterSpacing: -0.3,
+      margin: '22px 0 12px', fontFamily: T.font,
+    }}>{children}</div>
+  )
+}
+
+/* ─────────── Temperature stepper ─────────── */
+
+function TempControl({ label, value, onDec, onInc }) {
+  const RoundBtn = ({ onClick, children }) => (
+    <motion.button
+      whileTap={{ scale: 0.9 }}
+      onClick={onClick}
+      style={{
+        width: 46, height: 46, borderRadius: '50%',
+        background: T.chipGrad, border: T.border, cursor: 'pointer',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        color: T.text, flexShrink: 0,
+      }}
+    >{children}</motion.button>
+  )
+  return (
+    <div style={{
+      background: T.chipGrad, border: T.border, borderRadius: 22,
+      padding: '16px 18px',
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+    }}>
+      <div>
+        <div style={{ fontSize: 14, color: T.sub, fontWeight: 600, letterSpacing: -0.2 }}>{label}</div>
+        <div style={{ fontSize: 30, fontWeight: 700, color: T.text, letterSpacing: -1, lineHeight: 1.1 }}>
+          {value.toFixed(1)}<span style={{ fontSize: 18, fontWeight: 600 }}>°C</span>
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <RoundBtn onClick={onDec}><Minus size={22} strokeWidth={2.4} /></RoundBtn>
+        <RoundBtn onClick={onInc}><Plus size={22} strokeWidth={2.4} /></RoundBtn>
+      </div>
+    </div>
+  )
+}
+
+/* ─────────── App wireframe screens ─────────── */
+
+function Sk({ w = '100%', h, r = 12, style }) {
+  return <div style={{ width: w, height: h, borderRadius: r, background: T.skeleton, flexShrink: 0, ...style }} />
+}
+
+function WireframeRow({ count = 5, cardW = 260, cardH = 156 }) {
+  return (
+    <div style={{ marginTop: 30 }}>
+      <Sk w={200} h={22} r={8} />
+      <div style={{ display: 'flex', gap: 18, marginTop: 16, overflow: 'hidden' }}>
+        {Array.from({ length: count }).map((_, i) => (
+          <div key={i}>
+            <Sk w={cardW} h={cardH} r={16} />
+            <Sk w={cardW * 0.7} h={14} r={6} style={{ marginTop: 10 }} />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function VideoWireframe({ app }) {
+  return (
+    <div style={{ padding: 44, height: '100%', overflowY: 'auto' }}>
+      {/* Featured hero */}
+      <div style={{
+        height: 300, borderRadius: 24,
+        background: `linear-gradient(150deg, ${app.color} 0%, rgba(20,20,28,0.92) 130%)`,
+        position: 'relative', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
+        padding: 36, overflow: 'hidden',
+      }}>
+        <div style={{
+          position: 'absolute', top: 28, right: 32, width: 76, height: 76, borderRadius: '50%',
+          background: 'rgba(255,255,255,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <Play size={34} fill={app.color} strokeWidth={0} style={{ marginLeft: 4 }} />
+        </div>
+        <Sk w={360} h={30} r={8} style={{ background: 'rgba(255,255,255,0.65)' }} />
+        <Sk w={520} h={16} r={6} style={{ background: 'rgba(255,255,255,0.45)', marginTop: 14 }} />
+      </div>
+      <WireframeRow count={5} />
+      <WireframeRow count={5} />
+    </div>
+  )
+}
+
+function MusicWireframe({ app }) {
+  return (
+    <div style={{ padding: 44, height: '100%', overflowY: 'auto' }}>
+      <div style={{ display: 'flex', gap: 28, alignItems: 'center' }}>
+        <Sk w={220} h={220} r={20} style={{ background: `linear-gradient(150deg, ${app.color} 0%, rgba(20,20,28,0.85) 130%)` }} />
+        <div style={{ flex: 1 }}>
+          <Sk w={140} h={16} r={6} />
+          <Sk w={420} h={34} r={8} style={{ marginTop: 16 }} />
+          <Sk w={260} h={16} r={6} style={{ marginTop: 16 }} />
+          <Sk w={150} h={48} r={999} style={{ marginTop: 28, background: app.color, opacity: 0.85 }} />
+        </div>
+      </div>
+      <Sk w={180} h={22} r={8} style={{ marginTop: 40 }} />
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 22, marginTop: 18,
+      }}>
+        {Array.from({ length: 10 }).map((_, i) => (
+          <div key={i}>
+            <Sk w="100%" h={180} r={16} />
+            <Sk w="80%" h={14} r={6} style={{ marginTop: 10 }} />
+            <Sk w="55%" h={12} r={6} style={{ marginTop: 7 }} />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function StoreWireframe() {
+  return (
+    <div style={{ padding: 44, height: '100%', overflowY: 'auto' }}>
+      {/* Search bar */}
+      <div style={{
+        height: 56, borderRadius: 999, background: T.skeleton,
+        display: 'flex', alignItems: 'center', gap: 12, padding: '0 22px',
+      }}>
+        <Search size={24} color={T.faint} />
+        <Sk w={220} h={14} r={6} style={{ background: '#d6d9e2' }} />
+      </div>
+      <Sk w={160} h={22} r={8} style={{ marginTop: 36 }} />
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 20, marginTop: 18,
+      }}>
+        {Array.from({ length: 8 }).map((_, i) => (
+          <div key={i} style={{
+            background: T.card, border: T.border, borderRadius: 22,
+            padding: 18, display: 'flex', alignItems: 'center', gap: 16,
+          }}>
+            <Sk w={72} h={72} r={18} />
+            <div style={{ flex: 1 }}>
+              <Sk w="60%" h={16} r={6} />
+              <Sk w="40%" h={12} r={6} style={{ marginTop: 9 }} />
+            </div>
+            <div style={{
+              width: 84, height: 40, borderRadius: 999, background: T.accentSoft,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: T.accent, fontSize: 15, fontWeight: 700, fontFamily: T.font,
+            }}>설치</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function AppScreen({ app, onBack }) {
+  const Body = app.key === 'store'
+    ? StoreWireframe
+    : app.key === 'spotify'
+    ? MusicWireframe
+    : VideoWireframe
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: 40 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: 40 }}
+      transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
+      style={{ height: '100%', display: 'flex', flexDirection: 'column', background: T.bg }}
+    >
+      {/* Back bar */}
+      <div style={{
+        padding: '20px 36px', display: 'flex', alignItems: 'center', gap: 18,
+        borderBottom: `1px solid ${T.divider}`, background: T.card, flexShrink: 0,
+      }}>
+        <motion.button
+          whileTap={{ scale: 0.9 }}
+          onClick={onBack}
+          style={{
+            background: T.chipGrad, border: T.border, cursor: 'pointer',
+            width: 52, height: 52, borderRadius: '50%',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.text,
+          }}
+        ><ArrowLeft size={26} strokeWidth={2.2} /></motion.button>
+        <div style={{
+          width: 46, height: 46, borderRadius: 13, background: app.color,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white',
+        }}>{app.iconSm ?? app.icon}</div>
+        <div style={{ fontSize: 24, fontWeight: 700, color: T.text, letterSpacing: -0.5 }}>{app.label}</div>
+        <div style={{
+          marginLeft: 'auto', fontSize: 13, fontWeight: 600, color: T.faint,
+          border: `1px dashed ${T.faint}`, borderRadius: 999, padding: '6px 14px',
+        }}>와이어프레임</div>
+      </div>
+      <div style={{ flex: 1, overflow: 'hidden' }}><Body app={app} /></div>
+    </motion.div>
+  )
+}
+
 /* ─────────── Panel ─────────── */
 
 export default function ControlPanel({ onClose }) {
   const [controls, setControls] = useState({
+    autoClimate: true,
+    recirculate: false,
     defrostFront: false,
     defrostRear: false,
-    autoClimate: true,
     driverHeat: false,
-    passengerHeat: false,
     driverVent: false,
+    passengerHeat: false,
     passengerVent: false,
-    recirculate: false,
     steeringHeat: false,
   })
   const toggle = (k) => setControls(c => ({ ...c, [k]: !c[k] }))
 
-  const vehicleControls = [
-    { key: 'defrostFront', label: '앞유리\n서리 제거', icon: <Wind size={32} />, accent: T.warm },
-    { key: 'defrostRear', label: '뒷유리\n서리 제거', icon: <Wind size={32} style={{ transform: 'scaleX(-1)' }} />, accent: T.warm },
-    { key: 'autoClimate', label: 'AUTO\n공조', icon: <Cloud size={32} />, accent: T.accent },
-    { key: 'driverHeat', label: '운전석\n시트 열선', icon: <Flame size={32} />, accent: T.warm },
-    { key: 'passengerHeat', label: '동승석\n시트 열선', icon: <Flame size={32} />, accent: T.warm },
-    { key: 'driverVent', label: '운전석\n시트 통풍', icon: <Snowflake size={32} />, accent: T.cool },
-    { key: 'passengerVent', label: '동승석\n시트 통풍', icon: <Snowflake size={32} />, accent: T.cool },
-    { key: 'recirculate', label: '내기\n순환', icon: <RotateCcw size={32} />, accent: T.accent },
-    { key: 'steeringHeat', label: '운전대\n열선', icon: <Flame size={32} />, accent: T.warm },
+  const [driverTemp, setDriverTemp] = useState(22)
+  const [passengerTemp, setPassengerTemp] = useState(22)
+  const stepTemp = (setter) => (delta) =>
+    setter((v) => Math.min(30, Math.max(17, Math.round((v + delta) * 2) / 2)))
+
+  const [openApp, setOpenApp] = useState(null)
+
+  // Vehicle controls grouped by category.
+  const climate = [
+    { key: 'autoClimate', label: 'AUTO\n공조', icon: <Cloud size={30} />, accent: T.accent },
+    { key: 'recirculate', label: '내기\n순환', icon: <RotateCcw size={30} />, accent: T.accent },
+    { key: 'defrostFront', label: '앞유리\n서리 제거', icon: <Wind size={30} />, accent: T.warm },
+    { key: 'defrostRear', label: '뒷유리\n서리 제거', icon: <Wind size={30} style={{ transform: 'scaleX(-1)' }} />, accent: T.warm },
   ]
+  const seats = [
+    { key: 'driverHeat', label: '운전석\n열선', icon: <Flame size={30} />, accent: T.warm },
+    { key: 'driverVent', label: '운전석\n통풍', icon: <Snowflake size={30} />, accent: T.cool },
+    { key: 'passengerHeat', label: '동승석\n열선', icon: <Flame size={30} />, accent: T.warm },
+    { key: 'passengerVent', label: '동승석\n통풍', icon: <Snowflake size={30} />, accent: T.cool },
+  ]
+  const steering = [
+    { key: 'steeringHeat', label: '운전대\n열선', icon: <Flame size={30} />, accent: T.warm },
+  ]
+  const grid4 = { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14 }
 
   const apps = [
-    { key: 'netflix', label: 'Netflix', icon: <span style={{ fontSize: 42, fontWeight: 900, fontFamily: 'serif' }}>N</span>, color: '#e50914' },
-    { key: 'youtube', label: 'YouTube', icon: <Play size={44} fill="white" strokeWidth={0} />, color: '#ff0000' },
-    { key: 'tving', label: 'TVING', icon: <span style={{ fontSize: 32, fontWeight: 800 }}>T</span>, color: '#ec0a8c' },
-    { key: 'wavve', label: 'Wavve', icon: <span style={{ fontSize: 30, fontWeight: 800 }}>w</span>, color: '#0077ff' },
-    { key: 'disney', label: 'Disney+', icon: <span style={{ fontSize: 28, fontWeight: 800, fontStyle: 'italic' }}>D+</span>, color: '#0f1f4d' },
-    { key: 'spotify', label: 'Spotify', icon: <Music size={42} fill="white" strokeWidth={0} />, color: '#1db954' },
-    { key: 'apple', label: 'Apple TV', icon: <Tv size={44} />, color: '#000000' },
-    { key: 'store', label: '앱 마켓', icon: <Store size={42} />, color: T.accent },
+    { key: 'netflix', label: 'Netflix', icon: <span style={{ fontSize: 42, fontWeight: 900, fontFamily: 'serif' }}>N</span>, iconSm: <span style={{ fontSize: 24, fontWeight: 900, fontFamily: 'serif' }}>N</span>, color: '#e50914' },
+    { key: 'youtube', label: 'YouTube', icon: <Play size={44} fill="white" strokeWidth={0} />, iconSm: <Play size={22} fill="white" strokeWidth={0} />, color: '#ff0000' },
+    { key: 'tving', label: 'TVING', icon: <span style={{ fontSize: 32, fontWeight: 800 }}>T</span>, iconSm: <span style={{ fontSize: 20, fontWeight: 800 }}>T</span>, color: '#ec0a8c' },
+    { key: 'wavve', label: 'Wavve', icon: <span style={{ fontSize: 30, fontWeight: 800 }}>w</span>, iconSm: <span style={{ fontSize: 20, fontWeight: 800 }}>w</span>, color: '#0077ff' },
+    { key: 'disney', label: 'Disney+', icon: <span style={{ fontSize: 28, fontWeight: 800, fontStyle: 'italic' }}>D+</span>, iconSm: <span style={{ fontSize: 18, fontWeight: 800, fontStyle: 'italic' }}>D+</span>, color: '#0f1f4d' },
+    { key: 'spotify', label: 'Spotify', icon: <Music size={42} fill="white" strokeWidth={0} />, iconSm: <Music size={22} fill="white" strokeWidth={0} />, color: '#1db954' },
+    { key: 'apple', label: 'Apple TV', icon: <Tv size={44} />, iconSm: <Tv size={22} />, color: '#000000' },
+    { key: 'store', label: '앱 마켓', icon: <Store size={42} />, iconSm: <Store size={22} />, color: T.accent },
   ]
 
   return (
@@ -201,62 +412,80 @@ export default function ControlPanel({ onClose }) {
         </div>
 
         {/* Body */}
-        <div style={{
-          flex: 1, display: 'flex', overflow: 'hidden',
-        }}>
-          {/* Left: vehicle controls — primary depth */}
-          <div style={{
-            flex: 1.4, padding: 36, overflowY: 'auto',
-            borderRight: `1px solid ${T.divider}`,
-          }}>
-            <SectionHeader title="차량 제어" subtitle="공조 · 시트 · 유리" />
+        <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+          <div style={{ height: '100%', display: 'flex', overflow: 'hidden' }}>
+            {/* Left: vehicle controls — categorized */}
             <div style={{
-              display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14,
+              flex: 1.4, padding: 36, overflowY: 'auto',
+              borderRight: `1px solid ${T.divider}`,
             }}>
-              {vehicleControls.map(c => (
-                <ControlTile
-                  key={c.key}
-                  icon={c.icon}
-                  label={c.label}
-                  active={controls[c.key]}
-                  accent={c.accent}
-                  onClick={() => toggle(c.key)}
-                />
-              ))}
-            </div>
-          </div>
+              <SectionHeader title="차량 제어" subtitle="온도 · 공조 · 시트 · 스티어링" />
 
-          {/* Right: apps & media — separate hierarchy */}
-          <div style={{
-            flex: 1, padding: 36, overflowY: 'auto',
-            background: T.card,
-          }}>
-            <SectionHeader title="미디어 & 앱" subtitle="자율주행 중 즐기는 OTT · 음악" />
-            <div style={{
-              display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 24, columnGap: 12,
-              marginBottom: 36,
-            }}>
-              {apps.map(a => (
-                <AppTile
-                  key={a.key}
-                  icon={a.icon}
-                  label={a.label}
-                  color={a.color}
-                  onClick={() => {}}
-                />
-              ))}
+              <CategoryLabel>온도</CategoryLabel>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14 }}>
+                <TempControl label="운전석" value={driverTemp} onDec={() => stepTemp(setDriverTemp)(-0.5)} onInc={() => stepTemp(setDriverTemp)(0.5)} />
+                <TempControl label="동승석" value={passengerTemp} onDec={() => stepTemp(setPassengerTemp)(-0.5)} onInc={() => stepTemp(setPassengerTemp)(0.5)} />
+              </div>
+
+              <CategoryLabel>공조</CategoryLabel>
+              <div style={grid4}>
+                {climate.map(c => (
+                  <ControlTile key={c.key} icon={c.icon} label={c.label} active={controls[c.key]} accent={c.accent} onClick={() => toggle(c.key)} />
+                ))}
+              </div>
+
+              <CategoryLabel>시트</CategoryLabel>
+              <div style={grid4}>
+                {seats.map(c => (
+                  <ControlTile key={c.key} icon={c.icon} label={c.label} active={controls[c.key]} accent={c.accent} onClick={() => toggle(c.key)} />
+                ))}
+              </div>
+
+              <CategoryLabel>스티어링</CategoryLabel>
+              <div style={grid4}>
+                {steering.map(c => (
+                  <ControlTile key={c.key} icon={c.icon} label={c.label} active={controls[c.key]} accent={c.accent} onClick={() => toggle(c.key)} />
+                ))}
+              </div>
             </div>
-            <div style={{
-              background: T.accentSoft, borderRadius: 20, padding: '16px 20px',
-              display: 'flex', alignItems: 'center', gap: 14,
-            }}>
-              <Smartphone size={32} color={T.accent} />
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 17, fontWeight: 600, color: T.text, letterSpacing: -0.3 }}>휴대폰 연결</div>
-                <div style={{ fontSize: 14, color: T.sub, marginTop: 2 }}>Android Auto / CarPlay 자동 연결됨</div>
+
+            {/* Right: apps & media */}
+            <div style={{ flex: 1, padding: 36, overflowY: 'auto', background: T.card }}>
+              <SectionHeader title="미디어 & 앱" subtitle="자율주행 중 즐기는 OTT · 음악" />
+              <div style={{
+                display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 24, columnGap: 12,
+                marginBottom: 36,
+              }}>
+                {apps.map(a => (
+                  <AppTile key={a.key} icon={a.icon} label={a.label} color={a.color} onClick={() => setOpenApp(a)} />
+                ))}
+              </div>
+              <div style={{
+                background: T.accentSoft, borderRadius: 20, padding: '16px 20px',
+                display: 'flex', alignItems: 'center', gap: 14,
+              }}>
+                <Smartphone size={32} color={T.accent} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 17, fontWeight: 600, color: T.text, letterSpacing: -0.3 }}>휴대폰 연결</div>
+                  <div style={{ fontSize: 14, color: T.sub, marginTop: 2 }}>Android Auto / CarPlay 자동 연결됨</div>
+                </div>
               </div>
             </div>
           </div>
+
+          {/* App wireframe overlay */}
+          <AnimatePresence>
+            {openApp && (
+              <motion.div
+                style={{ position: 'absolute', inset: 0, zIndex: 5 }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+              >
+                <AppScreen app={openApp} onBack={() => setOpenApp(null)} />
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </motion.div>
     </motion.div>
