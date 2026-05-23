@@ -40,6 +40,18 @@ const APP_CONTROL_LOGIC = `
 앱 제어 요청이 아닐 때는 이 태그들을 절대 출력하지 마세요.
 예: "내비게이션을 켤게요. [OPEN_APP:Navigation]"`
 
+// Climate control by intent. The model reasons about comfort ("추워" → warmer)
+// and emits absolute targets the app applies. Tags are parsed in code.
+const CLIMATE_CONTROL_LOGIC = `
+
+[공조 제어]
+탑승자가 실내 온도나 바람(공조)을 조절하려는 의도를 보이면(예: "추워", "더워", "온도 올려/내려줘", "23도로 맞춰줘", "바람 세게", "바람 약하게", "잠깐 시원하게 해줘"), 짧게 확인하는 답변과 함께 응답 맨 마지막 줄에 해당 태그를 덧붙이세요.
+- 온도: [SET_TEMP:<17~29 정수>] — 아래 '현재 실내 온도'를 기준으로 의도에 맞는 목표 온도를 직접 계산해 절대값으로 출력하세요. "춥다/추워"는 온도를 올리고, "덥다/더워"는 내리세요.
+- 바람 세기(지속): [FAN:<1~5 정수>] (1 약함 ~ 5 강함)
+- 바람을 잠깐만 강하게: [FAN_BOOST] (잠시 세게 틀었다가 자동 복귀)
+온도·바람을 함께 조절하면 두 태그를 모두 덧붙여도 됩니다. 공조 조절 의도가 없으면 이 태그들을 절대 출력하지 마세요.
+예: "조금 따뜻하게 할게요. [SET_TEMP:24]" · "바람 잠깐 세게 틀게요. [FAN_BOOST]"`
+
 const SPEED_INSTRUCTIONS = `
 
 [음성 속도 제어]
@@ -87,7 +99,7 @@ async function callOnce(text, apiKey, customPrompt) {
   return parts.find((p) => p.text)?.text ?? ''
 }
 
-export async function getGeminiResponse(text, context = '', needsScenarioCard = false, currentSpeedLevel = 'normal', scenarioId = null) {
+export async function getGeminiResponse(text, context = '', needsScenarioCard = false, currentSpeedLevel = 'normal', scenarioId = null, currentTemp = 20, currentFan = 2) {
   if (KEYS.length === 0) {
     throw new Error('API 키가 설정되지 않았습니다 (VITE_GEMINI_API_KEYS)')
   }
@@ -113,6 +125,7 @@ ${OPTIONS_LOGIC}`
   }
 
   finalPrompt += APP_CONTROL_LOGIC
+  finalPrompt += CLIMATE_CONTROL_LOGIC + `\n현재 실내 온도: ${currentTemp}°C · 바람 세기: ${currentFan}/5`
   finalPrompt += SPEED_INSTRUCTIONS + `\n현재 음성 속도 레벨: ${currentSpeedLevel}`
 
   // Dynamic few-shot: inject operator-curated examples for this scenario (no-op

@@ -507,6 +507,26 @@ body {
   color: #E85D5D;
 }
 
+.fan-display {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px;
+}
+
+.fan-dots {
+  display: flex;
+  gap: 4px;
+}
+
+.fan-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  transition: background 0.3s;
+}
+
 .btn-seat {
   width: 67px;
   height: 67px;

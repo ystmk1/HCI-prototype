@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Flame, Snowflake, Mic, MicOff, ExternalLink, X } from 'lucide-react'
+import { Flame, Snowflake, Mic, MicOff, ExternalLink, X, Wind } from 'lucide-react'
 
 // ── Icon imports ────────────────────────────────────────────
 import iconSun from '../assets/icons/Icon-15.svg'
@@ -106,6 +106,7 @@ function VehicleHMI() {
   const [showCarStatus, setShowCarStatus] = useState(false)
   const [temperature, setTemperature] = useState(20)
   const [isAutoClimate, setIsAutoClimate] = useState(true)
+  const [fanSpeed, setFanSpeed] = useState(2)
   const [currentTime, setCurrentTime] = useState(new Date())
   const [activeApp, setActiveApp] = useState(null)
   const [isControlPanelOpen, setIsControlPanelOpen] = useState(false)
@@ -119,6 +120,9 @@ function VehicleHMI() {
   const speakingRateRef = useRef(SPEED_LEVELS[DEFAULT_SPEED_LEVEL])
   const isListeningRef = useRef(false)         // mirror of isListening for async callbacks
   const lastInputMethodRef = useRef('text')    // 'voice' arms the post-response follow-up
+  const temperatureRef = useRef(20)            // mirrors of climate state for the Gemini call
+  const fanSpeedRef = useRef(2)
+  const fanBoostTimerRef = useRef(null)        // reverts a temporary fan boost
 
   // Fit the fixed 1920×1080 screen to the display, preserving aspect ratio.
   useEffect(() => {
@@ -235,7 +239,7 @@ function VehicleHMI() {
 
     try {
       const needsCard = effectiveContext !== '' && !hasShownScenarioCard
-      let aiText = await getGeminiResponse(text, effectiveContext, needsCard, speedLevelRef.current, activeScenario?.scenarioId)
+      let aiText = await getGeminiResponse(text, effectiveContext, needsCard, speedLevelRef.current, activeScenario?.scenarioId, temperatureRef.current, fanSpeedRef.current)
       setIsAITyping(false)
 
       const aiTimestamp = new Date().toISOString()
@@ -291,6 +295,31 @@ function VehicleHMI() {
         aiText = aiText.replace(/\[CLOSE_APP\]/i, '').trim()
         setActiveApp(null)
         console.log('[app-control] close')
+      }
+
+      // Climate control by intent: [SET_TEMP:n] / [FAN:n] / [FAN_BOOST].
+      const setTempMatch = aiText.match(/\[SET_TEMP:\s*(\d{1,2})\s*\]/i)
+      if (setTempMatch) {
+        const t = Math.min(29, Math.max(17, parseInt(setTempMatch[1], 10)))
+        aiText = aiText.replace(setTempMatch[0], '').trim()
+        setTemperature(t)
+        setIsAutoClimate(false)
+        console.log('[climate] temp →', t)
+      }
+      const fanMatch = aiText.match(/\[FAN:\s*([1-5])\s*\]/i)
+      if (fanMatch) {
+        aiText = aiText.replace(fanMatch[0], '').trim()
+        clearTimeout(fanBoostTimerRef.current)
+        setFanSpeed(parseInt(fanMatch[1], 10))
+        console.log('[climate] fan →', fanMatch[1])
+      }
+      if (/\[FAN_BOOST\]/i.test(aiText)) {
+        aiText = aiText.replace(/\[FAN_BOOST\]/i, '').trim()
+        clearTimeout(fanBoostTimerRef.current)
+        const prev = fanSpeedRef.current
+        setFanSpeed(5)
+        fanBoostTimerRef.current = setTimeout(() => setFanSpeed(prev), 8000)
+        console.log('[climate] fan boost (8s) ← from', prev)
       }
 
       const displayText = aiText || '(응답을 받지 못했습니다)'
@@ -372,6 +401,10 @@ function VehicleHMI() {
   useEffect(() => {
     isListeningRef.current = isListening
   }, [isListening])
+
+  // Mirror climate state so the Gemini call always sends the current values.
+  useEffect(() => { temperatureRef.current = temperature }, [temperature])
+  useEffect(() => { fanSpeedRef.current = fanSpeed }, [fanSpeed])
 
   const startListening = () => {
     if (isListeningRef.current) return
@@ -789,6 +822,19 @@ function VehicleHMI() {
             <img src={iconChevronUp} alt="Temp up" />
           </motion.button>
 
+          {/* Fan speed indicator (set by voice intent: 바람 세게/약하게/잠깐) */}
+          <div className="fan-display" title={`바람 세기 ${fanSpeed}/5`}>
+            <Wind size={22} color={fanSpeed >= 4 ? '#4A90D9' : 'var(--text-secondary)'} />
+            <div className="fan-dots">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <span
+                  key={i}
+                  className="fan-dot"
+                  style={{ background: i <= fanSpeed ? '#4A90D9' : 'rgba(140,144,168,0.28)' }}
+                />
+              ))}
+            </div>
+          </div>
 
         </div>
 
