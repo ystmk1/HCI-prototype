@@ -764,7 +764,50 @@ function maneuverText(step) {
   return fn ? fn(step.maneuver.modifier) : (t || '')
 }
 
-function NavigationAppMap({ onClose }) {
+// Project OSRM geometry coordinates into an SVG viewbox, preserving aspect.
+// Returns a single Path "d" string + the projected start/end points so the
+// minimal nav view can drop the origin and destination dots.
+function buildRouteSvg(geometry, w, h, pad = 20) {
+  if (!geometry || geometry.length < 2) {
+    return { d: '', start: [w / 2, h - pad], end: [w / 2, pad] }
+  }
+  const xs = geometry.map((c) => c[0]), ys = geometry.map((c) => c[1])
+  const minX = Math.min(...xs), maxX = Math.max(...xs)
+  const minY = Math.min(...ys), maxY = Math.max(...ys)
+  const dx = (maxX - minX) || 1e-6, dy = (maxY - minY) || 1e-6
+  const s = Math.min((w - 2 * pad) / dx, (h - 2 * pad) / dy)
+  const usedW = dx * s, usedH = dy * s
+  const ox = pad + (w - 2 * pad - usedW) / 2
+  const oy = pad + (h - 2 * pad - usedH) / 2
+  const points = geometry.map(([lo, la]) => [
+    ox + (lo - minX) * s,
+    oy + (maxY - la) * s, // svg y is flipped relative to latitude
+  ])
+  const d = points.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ')
+  return { d, start: points[0], end: points[points.length - 1] }
+}
+
+function formatClockTime(d) {
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+// Minimal-nav stat row: small label / large value, three sizes for hierarchy.
+function NavStat({ label, value, size = 'md' }) {
+  const valueSize = size === 'lg' ? 40 : size === 'sm' ? 18 : 28
+  const valueWeight = size === 'lg' ? 800 : 700
+  const valueColor = size === 'sm' ? T.sub : T.text
+  return (
+    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+      <span style={{ fontSize: 14, color: T.sub, fontWeight: 600, letterSpacing: -0.2 }}>{label}</span>
+      <span style={{
+        fontSize: valueSize, fontWeight: valueWeight, color: valueColor,
+        letterSpacing: -0.8, fontVariantNumeric: 'tabular-nums',
+      }}>{value}</span>
+    </div>
+  )
+}
+
+function NavigationAppMap({ onClose, activeRoute, setActiveRoute }) {
   const mapEl = useRef(null)
   const mapRef = useRef(null)
   const placesRef = useRef(null)
@@ -894,6 +937,108 @@ function NavigationAppMap({ onClose }) {
     }
   }
 
+  // "경로 확정" — promote the previewed OSRM route into a session-wide active
+  // trip the AI can reason about (departure/ETA/distance go into the prompt).
+  const confirmRoute = () => {
+    if (!destination || !route) return
+    const now = new Date()
+    const baseArrival = new Date(now.getTime() + route.duration * 1000)
+    setActiveRoute?.({
+      destination: {
+        name: destination.name, addr: destination.addr,
+        lat: destination.lat, lng: destination.lng,
+      },
+      durationSec: route.duration,
+      distanceM: route.distance,
+      geometry: route.geometry,
+      departureIso: now.toISOString(),
+      baseArrivalIso: baseArrival.toISOString(),
+    })
+  }
+
+  const endActiveRoute = () => {
+    setActiveRoute?.(null)
+    clearDestination()
+  }
+
+  // Tick once a minute so the "잔여 시간" / "예상 도착" reflect real-time when
+  // the minimal nav view is open.
+  const [, setNowTick] = useState(0)
+  useEffect(() => {
+    if (!activeRoute) return
+    const id = setInterval(() => setNowTick((t) => t + 1), 30_000)
+    return () => clearInterval(id)
+  }, [activeRoute])
+
+  // ── Minimal nav view (no map) — shown once the user has confirmed the
+  // route. Hides the map; communicates the trip with a route-shape SVG +
+  // text-hierarchy stats. The AI gets the same info via gemini.js's
+  // navigation context so spoken questions stay coherent with this screen.
+  if (activeRoute) {
+    const dep = new Date(activeRoute.departureIso)
+    const arr = new Date(activeRoute.baseArrivalIso)
+    const now = new Date()
+    const remainingMin = Math.max(0, Math.round((arr - now) / 60_000))
+    const svg = buildRouteSvg(activeRoute.geometry, 360, 200)
+    return (
+      <Shell title="내비게이션 안내" onBack={onClose}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 26, paddingTop: 6 }}>
+          {/* Destination header */}
+          <div>
+            <div style={{ fontSize: 12, color: T.faint, fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>안내 중</div>
+            <div style={{
+              fontSize: 28, fontWeight: 700, color: T.text, letterSpacing: -0.6,
+              marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>{activeRoute.destination.name}</div>
+            <div style={{
+              fontSize: 14, color: T.sub, marginTop: 2,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>{activeRoute.destination.addr}</div>
+          </div>
+
+          {/* Route line shape (no basemap) */}
+          <div style={{
+            background: T.card, border: T.border, borderRadius: 24,
+            padding: '14px 10px', display: 'flex', justifyContent: 'center',
+          }}>
+            <svg width={360} height={200} viewBox="0 0 360 200" style={{ width: '100%', height: 'auto', maxWidth: 360 }}>
+              <path
+                d={svg.d}
+                stroke="#2d7cf1"
+                strokeWidth={5}
+                fill="none"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                opacity={0.95}
+              />
+              <circle cx={svg.start[0]} cy={svg.start[1]} r={8} fill="#2d7cf1" />
+              <circle cx={svg.start[0]} cy={svg.start[1]} r={3} fill="#ffffff" />
+              <circle cx={svg.end[0]} cy={svg.end[1]} r={10} fill="#e85d5d" />
+              <circle cx={svg.end[0]} cy={svg.end[1]} r={3.5} fill="#ffffff" />
+            </svg>
+          </div>
+
+          {/* Stats — strong text hierarchy */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <NavStat label="예상 도착" value={formatClockTime(arr)} size="lg" />
+            <NavStat label="잔여 시간" value={`${remainingMin}분`} />
+            <NavStat label="남은 거리" value={formatDistance(activeRoute.distanceM)} />
+            <NavStat label="출발 시각" value={formatClockTime(dep)} size="sm" />
+          </div>
+
+          <motion.button
+            whileTap={{ scale: 0.97 }}
+            onClick={endActiveRoute}
+            style={{
+              background: T.card, color: T.sub, border: T.border, borderRadius: 14,
+              padding: '14px', fontSize: 15, fontWeight: 700, cursor: 'pointer',
+              marginTop: 4,
+            }}
+          >안내 종료</motion.button>
+        </div>
+      </Shell>
+    )
+  }
 
   return (
     <Shell title="내비게이션" onBack={onClose}>
@@ -1048,10 +1193,24 @@ function NavigationAppMap({ onClose }) {
                   경로를 계산하지 못했어요 ({routeError}) — 직선 거리만 표시됩니다.
                 </div>
               ) : route ? (
-                <div style={{ display: 'flex', gap: 16, fontSize: 14, color: T.sub }}>
-                  <span>예상 시간 <b style={{ color: T.text, fontWeight: 700 }}>{formatDuration(route.duration)}</b></span>
-                  <span>거리 <b style={{ color: T.text, fontWeight: 700 }}>{formatDistance(route.distance)}</b></span>
-                </div>
+                <>
+                  <div style={{ display: 'flex', gap: 16, fontSize: 14, color: T.sub, marginBottom: 10 }}>
+                    <span>예상 시간 <b style={{ color: T.text, fontWeight: 700 }}>{formatDuration(route.duration)}</b></span>
+                    <span>거리 <b style={{ color: T.text, fontWeight: 700 }}>{formatDistance(route.distance)}</b></span>
+                  </div>
+                  <motion.button
+                    whileTap={{ scale: 0.97 }}
+                    onClick={confirmRoute}
+                    style={{
+                      width: '100%', background: T.accent, color: 'white', border: 'none',
+                      borderRadius: 14, padding: '12px 14px', fontSize: 15, fontWeight: 700,
+                      cursor: 'pointer', display: 'flex', alignItems: 'center',
+                      justifyContent: 'center', gap: 8,
+                    }}
+                  >
+                    <NavIcon size={18} /> 경로 확정 · 안내 시작
+                  </motion.button>
+                </>
               ) : null}
             </motion.div>
           )}
@@ -1654,7 +1813,7 @@ function Detail({ icon, label }) {
    Router
    ============================================================ */
 
-export default function AppView({ id, onClose }) {
+export default function AppView({ id, onClose, activeRoute, setActiveRoute }) {
   return (
     <AnimatePresence mode="wait">
       <motion.div
@@ -1665,7 +1824,7 @@ export default function AppView({ id, onClose }) {
         transition={{ duration: 0.18 }}
         style={{ width: '100%', height: '100%' }}
       >
-        {id === 'Navigation' && <NavigationAppMap onClose={onClose} />}
+        {id === 'Navigation' && <NavigationAppMap onClose={onClose} activeRoute={activeRoute} setActiveRoute={setActiveRoute} />}
         {id === 'Phone' && <PhoneApp onClose={onClose} />}
         {id === 'Music' && <MusicApp onClose={onClose} />}
         {id === 'Mail' && <MailApp onClose={onClose} />}

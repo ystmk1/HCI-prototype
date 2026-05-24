@@ -144,6 +144,10 @@ function VehicleHMI() {
   const [temperature, setTemperature] = useState(20)
   const [isAutoClimate, setIsAutoClimate] = useState(true)
   const [fanSpeed, setFanSpeed] = useState(2)
+  // Active navigation route confirmed by the user in the Nav app. When set,
+  // gemini.js gets its summary in the prompt so the AI can answer trip
+  // questions ("얼마나 걸려?") with concrete numbers + scenario delay.
+  const [activeRoute, setActiveRoute] = useState(null)
   const [currentTime, setCurrentTime] = useState(new Date())
   const [activeApp, setActiveApp] = useState(null)
   const [isControlPanelOpen, setIsControlPanelOpen] = useState(false)
@@ -160,6 +164,7 @@ function VehicleHMI() {
   const temperatureRef = useRef(20)            // mirrors of climate state for the Gemini call
   const fanSpeedRef = useRef(2)
   const fanBoostTimerRef = useRef(null)        // reverts a temporary fan boost
+  const activeRouteRef = useRef(null)          // mirror of activeRoute for the Gemini call
 
   // Fit the fixed 1920×1080 screen to the display, preserving aspect ratio.
   useEffect(() => {
@@ -202,6 +207,7 @@ function VehicleHMI() {
     setActiveApp(null)
     setIsControlPanelOpen(false)
     setHasShownScenarioCard(false)
+    setActiveRoute(null)
   }, [hmiResetNonce])
 
   const formatTime = (date) =>
@@ -276,7 +282,7 @@ function VehicleHMI() {
 
     try {
       const needsCard = effectiveContext !== '' && !hasShownScenarioCard
-      let aiText = await getGeminiResponse(text, effectiveContext, needsCard, speedLevelRef.current, activeScenario?.scenarioId, temperatureRef.current, fanSpeedRef.current)
+      let aiText = await getGeminiResponse(text, effectiveContext, needsCard, speedLevelRef.current, activeScenario?.scenarioId, temperatureRef.current, fanSpeedRef.current, activeRouteRef.current)
       setIsAITyping(false)
 
       const aiTimestamp = new Date().toISOString()
@@ -442,6 +448,7 @@ function VehicleHMI() {
   // Mirror climate state so the Gemini call always sends the current values.
   useEffect(() => { temperatureRef.current = temperature }, [temperature])
   useEffect(() => { fanSpeedRef.current = fanSpeed }, [fanSpeed])
+  useEffect(() => { activeRouteRef.current = activeRoute }, [activeRoute])
 
   const startListening = () => {
     if (isListeningRef.current) return
@@ -791,7 +798,7 @@ function VehicleHMI() {
               style={{ overflow: 'hidden', flexShrink: 0, borderRadius: 24 }}
             >
               <div className="panel-app" style={{ width: 482, height: '100%', borderRadius: 24, overflow: 'hidden', background: '#f5f5f7' }}>
-                <AppView id={activeApp} onClose={() => setActiveApp(null)} />
+                <AppView id={activeApp} onClose={() => setActiveApp(null)} activeRoute={activeRoute} setActiveRoute={setActiveRoute} />
               </div>
             </motion.div>
           )}

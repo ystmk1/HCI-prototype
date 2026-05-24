@@ -40,6 +40,39 @@ const APP_CONTROL_LOGIC = `
 앱 제어 요청이 아닐 때는 이 태그들을 절대 출력하지 마세요.
 예: "내비게이션을 켤게요. [OPEN_APP:Navigation]"`
 
+// Per-scenario extra travel-time penalty (minutes) applied to the navigation
+// arrival estimate. The scenario context already describes the holdup; this
+// lets the model give a concrete ETA shift without having to invent a number.
+const SCENARIO_DELAY_MIN = {
+  frustration_roundabout_loop: 5,
+  // anxiety_hydroplaning intentionally has no fixed delay — speed varies.
+}
+
+function formatClockTime(d) {
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+// Render the current trip into a one-line snapshot the model reads when the
+// passenger asks anything time/distance-related. `currentRoute` is the object
+// the app sets when the user confirms a destination in the Navigation app.
+function formatNavInfo(currentRoute, scenarioId) {
+  if (!currentRoute) return '안내 없음 (목적지 미설정).'
+  const now = new Date()
+  const dep = new Date(currentRoute.departureIso)
+  const base = new Date(currentRoute.baseArrivalIso)
+  const delayMin = SCENARIO_DELAY_MIN[scenarioId] || 0
+  const arr = new Date(base.getTime() + delayMin * 60_000)
+  const remainingMin = Math.max(0, Math.round((arr - now) / 60_000))
+  const km = (currentRoute.distanceM / 1000).toFixed(1)
+  const delayNote = delayMin ? ` (시나리오 지체 ${delayMin}분 반영)` : ''
+  return `${currentRoute.destination.name}으로 안내 중. 출발 ${formatClockTime(dep)} · 예상 도착 ${formatClockTime(arr)}${delayNote} · 잔여 약 ${remainingMin}분 · 거리 ${km} km · 현재 시각 ${formatClockTime(now)}.`
+}
+
+const NAVIGATION_CONTEXT = `
+
+[현재 네비게이션 정보]
+탑승자가 "얼마나 걸려?", "몇 시 도착해?", "남은 거리?", "왜 늦어져?" 같이 운행/시간/거리/지체 관련 질문을 하면, 아래 '현재 안내' 한 줄을 그대로 사실 기반으로 활용해 자연스럽게 답하세요. 도착 예정 시각·잔여 시간·거리는 모두 거기 명시된 값이며, 시나리오 지체가 있으면 이미 반영되어 있습니다. 안내 중이 아니면("안내 없음") 목적지가 설정돼 있지 않다고 정중하게 알려주세요. 별도의 태그는 출력하지 마세요.`
+
 // Climate control by intent. The model reasons about comfort ("추워" → warmer)
 // and emits absolute targets the app applies. Tags are parsed in code.
 const CLIMATE_CONTROL_LOGIC = `
@@ -99,7 +132,7 @@ async function callOnce(text, apiKey, customPrompt) {
   return parts.find((p) => p.text)?.text ?? ''
 }
 
-export async function getGeminiResponse(text, context = '', needsScenarioCard = false, currentSpeedLevel = 'normal', scenarioId = null, currentTemp = 20, currentFan = 2) {
+export async function getGeminiResponse(text, context = '', needsScenarioCard = false, currentSpeedLevel = 'normal', scenarioId = null, currentTemp = 20, currentFan = 2, currentRoute = null) {
   if (KEYS.length === 0) {
     throw new Error('API 키가 설정되지 않았습니다 (VITE_GEMINI_API_KEYS)')
   }
@@ -126,6 +159,7 @@ ${OPTIONS_LOGIC}`
 
   finalPrompt += APP_CONTROL_LOGIC
   finalPrompt += CLIMATE_CONTROL_LOGIC + `\n현재 실내 온도: ${currentTemp}°C · 바람 세기: ${currentFan}/5`
+  finalPrompt += NAVIGATION_CONTEXT + `\n현재 안내: ${formatNavInfo(currentRoute, scenarioId)}`
   finalPrompt += SPEED_INSTRUCTIONS + `\n현재 음성 속도 레벨: ${currentSpeedLevel}`
 
   // Dynamic few-shot: inject operator-curated examples for this scenario (no-op
