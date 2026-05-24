@@ -1269,138 +1269,192 @@ function NavigationAppMap({ onClose, activeRoute, setActiveRoute }) {
    Phone
    ============================================================ */
 
+// MM:SS, or H:MM:SS once a call passes the hour mark. tabular-nums-friendly.
+function formatCallElapsed(sec) {
+  const m = Math.floor(sec / 60)
+  const s = sec % 60
+  const h = Math.floor(m / 60)
+  const mm = m % 60
+  const pad = (n) => String(n).padStart(2, '0')
+  return h > 0 ? `${h}:${pad(mm)}:${pad(s)}` : `${pad(m)}:${pad(s)}`
+}
+
 function PhoneApp({ onClose }) {
   const [tab, setTab] = useState('favorites')
   const [calling, setCalling] = useState(null)
   const [muted, setMuted] = useState(false)
   const [speaker, setSpeaker] = useState(true)
+  const [elapsedSec, setElapsedSec] = useState(0)
+
+  // Tick the call duration once a second while a call is active.
+  useEffect(() => {
+    if (!calling) { setElapsedSec(0); return }
+    setElapsedSec(0)
+    const id = setInterval(() => setElapsedSec((s) => s + 1), 1000)
+    return () => clearInterval(id)
+  }, [calling])
+
+  const endCall = () => { setCalling(null); setMuted(false); setSpeaker(true) }
 
   // Driving essentials only: a few one-tap contacts + recent callbacks.
   const favorites = [
-    { id: 1, name: '엄마', sub: '010-1234-5678', initials: '엄', color: '#f59e0b' },
-    { id: 2, name: '김민지', sub: 'PM · 회사', initials: '김', color: '#10b981' },
-    { id: 3, name: '박사장님', sub: '010-9999-0001', initials: '박', color: '#6366f1' },
-    { id: 4, name: '집', sub: '02-555-1234', initials: '집', color: '#0ea5e9' },
+    { id: 1, name: '엄마',     sub: '010-1234-5678', initials: '엄', color: '#f59e0b' },
+    { id: 2, name: '김민지',   sub: 'PM · 회사',      initials: '김', color: '#10b981' },
+    { id: 3, name: '박사장님', sub: '010-9999-0001',  initials: '박', color: '#6366f1' },
+    { id: 4, name: '집',       sub: '02-555-1234',    initials: '집', color: '#0ea5e9' },
   ]
   const recents = [
-    { id: 11, name: '엄마', when: '오늘 오전 9:12', dir: '발신', color: '#f59e0b', initials: '엄' },
-    { id: 12, name: '02-555-0188', when: '어제 오후 6:40', dir: '부재중', color: '#9ca3af', initials: '?' },
-    { id: 13, name: '이수현', when: '어제 오후 2:05', dir: '수신', color: '#ef4444', initials: '이' },
+    { id: 11, name: '엄마',          when: '오늘 오전 9:12', dir: '발신',   color: '#f59e0b', initials: '엄' },
+    { id: 12, name: '02-555-0188',   when: '어제 오후 6:40', dir: '부재중', color: '#9ca3af', initials: '?' },
+    { id: 13, name: '이수현',        when: '어제 오후 2:05', dir: '수신',   color: '#ef4444', initials: '이' },
   ]
 
+  /* ── IN-CALL VIEW ───────────────────────────────────── */
   if (calling) {
     return (
-      <Shell title="통화 중" onBack={() => { setCalling(null); setMuted(false) }}>
+      <Shell title="통화" onBack={endCall}>
         <div style={{
           display: 'flex', flexDirection: 'column', alignItems: 'center',
-          paddingTop: 16, paddingBottom: 8,
+          paddingTop: 18, paddingBottom: 4,
         }}>
-          <Avatar initials={calling.initials} color={calling.color} size={170} />
+          <Avatar initials={calling.initials} color={calling.color} size={148} />
           <div style={{
-            fontSize: 36, fontWeight: 600, marginTop: 22, letterSpacing: -0.9,
-            fontFamily: "'Pretendard Variable', 'Pretendard', sans-serif",
-          }}>{calling.name}</div>
-          <div style={{
+            fontSize: 11, color: T.faint, fontWeight: 700,
+            letterSpacing: 1.6, textTransform: 'uppercase', marginTop: 22,
             display: 'inline-flex', alignItems: 'center', gap: 8,
-            padding: '10px 20px', borderRadius: T.radiusChip, marginTop: 12,
-            background: T.accentSoft, color: T.accent,
-            fontSize: 18, fontWeight: 600, letterSpacing: -0.3,
           }}>
-            <span style={{ width: 10, height: 10, borderRadius: '50%', background: T.accent }} />
-            연결됨 · 00:12
+            <span style={{
+              width: 8, height: 8, borderRadius: '50%', background: T.accent,
+              boxShadow: `0 0 0 4px ${T.accentSoft}`,
+            }} />
+            통화 중
           </div>
+          <div style={{
+            fontSize: 32, fontWeight: 700, color: T.text,
+            letterSpacing: -0.8, lineHeight: 1.2, marginTop: 8,
+            textAlign: 'center', maxWidth: '100%',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>{calling.name}</div>
+          {calling.sub && (
+            <div style={{
+              fontSize: 14, color: T.sub, marginTop: 4,
+              fontWeight: 500, letterSpacing: -0.2,
+            }}>{calling.sub}</div>
+          )}
+
+          {/* Live elapsed time */}
+          <div style={{
+            fontSize: 44, fontWeight: 700, color: T.accent,
+            letterSpacing: -1.4, marginTop: 18,
+            fontVariantNumeric: 'tabular-nums', lineHeight: 1,
+          }}>{formatCallElapsed(elapsedSec)}</div>
         </div>
-        <div style={{ display: 'flex', gap: 12, marginTop: 36, marginBottom: 28 }}>
+
+        {/* Mid-call controls — mute + speaker (driving context: no add-call) */}
+        <div style={{ display: 'flex', gap: 12, marginTop: 32, marginBottom: 28 }}>
           <PhoneControl
-            icon={muted ? <MicOff size={30} /> : <Mic size={30} />}
-            label={muted ? '음소거됨' : '음소거'}
+            icon={muted ? <MicOff size={28} /> : <Mic size={28} />}
+            label={muted ? '음소거 중' : '음소거'}
             active={muted}
-            onClick={() => setMuted(m => !m)}
+            onClick={() => setMuted((m) => !m)}
           />
           <PhoneControl
-            icon={<Volume2 size={30} />}
-            label="스피커"
+            icon={speaker ? <Volume2 size={28} /> : <VolumeX size={28} />}
+            label={speaker ? '스피커' : '핸즈프리'}
             active={speaker}
-            onClick={() => setSpeaker(s => !s)}
-          />
-          <PhoneControl
-            icon={<UserPlus size={30} />}
-            label="통화 추가"
-            onClick={() => {}}
+            onClick={() => setSpeaker((s) => !s)}
           />
         </div>
+
+        {/* End call */}
         <div style={{ display: 'flex', justifyContent: 'center' }}>
           <motion.button
             whileTap={{ scale: 0.92 }}
-            onClick={() => { setCalling(null); setMuted(false) }}
+            onClick={endCall}
+            aria-label="통화 종료"
             style={{
-              width: 112, height: 112, borderRadius: '50%',
+              width: 96, height: 96, borderRadius: '50%',
               background: T.danger, border: 'none', color: 'white', cursor: 'pointer',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               boxShadow: '0 12px 28px rgba(213, 72, 72, 0.45)',
             }}
-          ><PhoneOff size={48} /></motion.button>
+          ><PhoneOff size={42} /></motion.button>
         </div>
       </Shell>
     )
   }
 
+  /* ── LIST VIEW ──────────────────────────────────────── */
   return (
     <Shell title="전화" onBack={onClose}>
+      {/* Segmented tabs — slimmer than before so the cards get more room */}
       <div style={{
-        display: 'flex', background: T.chipGrad, borderRadius: T.radiusChip, padding: 8, marginBottom: 22,
-        border: T.border, boxShadow: T.shadow,
+        display: 'flex', background: T.chipGrad, borderRadius: T.radiusChip,
+        padding: 6, marginBottom: 20, border: T.border, boxShadow: T.shadow,
       }}>
-        {[{ k: 'favorites', label: '즐겨찾기' }, { k: 'recents', label: '최근 통화' }].map(t => (
-          <button key={t.k} onClick={() => setTab(t.k)} style={{
-            flex: 1, padding: '18px 0', border: 'none', cursor: 'pointer',
-            background: tab === t.k ? T.keyGrad : 'transparent',
-            color: tab === t.k ? 'white' : T.sub,
-            borderRadius: T.radiusChip, fontSize: 22, fontWeight: 600, letterSpacing: -0.4,
-            boxShadow: tab === t.k ? `0 6px 16px ${T.accentGlow}` : 'none',
-            fontFamily: "'Pretendard Variable', 'Pretendard', sans-serif",
-            transition: 'background 0.2s, color 0.2s',
-          }}>{t.label}</button>
+        {[{ k: 'favorites', label: '즐겨찾기' }, { k: 'recents', label: '최근 통화' }].map((t) => (
+          <button
+            key={t.k}
+            onClick={() => setTab(t.k)}
+            style={{
+              flex: 1, padding: '12px 0', border: 'none', cursor: 'pointer',
+              background: tab === t.k ? T.keyGrad : 'transparent',
+              color: tab === t.k ? 'white' : T.sub,
+              borderRadius: T.radiusChip,
+              fontSize: 18, fontWeight: 700, letterSpacing: -0.3,
+              boxShadow: tab === t.k ? `0 6px 16px ${T.accentGlow}` : 'none',
+              fontFamily: 'inherit',
+              transition: 'background 0.2s, color 0.2s',
+            }}
+          >{t.label}</button>
         ))}
       </div>
+
       {tab === 'favorites' ? (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-          {favorites.map(c => (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          {favorites.map((c) => (
             <motion.button
               whileTap={{ scale: 0.96 }}
               key={c.id}
               onClick={() => setCalling(c)}
               style={{
                 background: T.card, border: T.border,
-                borderRadius: T.radiusCard, padding: '24px 16px',
+                borderRadius: T.radiusCard, padding: '22px 14px',
                 cursor: 'pointer', boxShadow: T.shadow,
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12,
-                fontFamily: "'Pretendard Variable', 'Pretendard', sans-serif",
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
+                fontFamily: 'inherit',
               }}
             >
-              <Avatar initials={c.initials} color={c.color} size={76} />
+              <Avatar initials={c.initials} color={c.color} size={72} />
               <div style={{
-                fontSize: 24, fontWeight: 600, color: T.text, letterSpacing: -0.5,
+                fontSize: 22, fontWeight: 700, color: T.text,
+                letterSpacing: -0.5, lineHeight: 1.2,
               }}>{c.name}</div>
               <div style={{
+                fontSize: 12, color: T.faint, fontWeight: 600,
+                letterSpacing: -0.2, marginTop: -4,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                maxWidth: '100%',
+              }}>{c.sub}</div>
+              <div style={{
                 display: 'inline-flex', alignItems: 'center', gap: 6,
-                padding: '8px 18px', borderRadius: T.radiusChip,
+                padding: '7px 16px', borderRadius: T.radiusChip,
                 background: T.accentSoft, color: T.accent,
-                fontSize: 16, fontWeight: 600, letterSpacing: -0.3,
+                fontSize: 14, fontWeight: 700, letterSpacing: -0.2,
               }}>
-                <PhoneIcon size={16} /> 통화
+                <PhoneIcon size={14} /> 통화
               </div>
             </motion.button>
           ))}
         </div>
       ) : (
-        recents.map(item => (
+        recents.map((item) => (
           <ListItem
             key={item.id}
             leading={<Avatar initials={item.initials} color={item.color} />}
             title={item.name}
             subtitle={`${item.when} · ${item.dir}`}
-            trailing={<PhoneIcon size={28} color={T.accent} />}
+            trailing={<PhoneIcon size={26} color={T.accent} />}
             onClick={() => setCalling(item)}
           />
         ))
@@ -1463,6 +1517,29 @@ function MusicApp({ onClose }) {
   const goNext = () => setTrackIdx(i => (i + 1) % queue.length)
   const goPrev = () => setTrackIdx(i => (i - 1 + queue.length) % queue.length)
 
+  // Per-second progress: real interval while playing, clamped at the track
+  // duration. Resets on track change.
+  const durToSec = (s) => {
+    const [m, sec] = s.split(':').map(Number)
+    return (m || 0) * 60 + (sec || 0)
+  }
+  const fmtMS = (sec) => {
+    const m = Math.floor(sec / 60)
+    const s = Math.floor(sec % 60)
+    return `${m}:${String(s).padStart(2, '0')}`
+  }
+  const totalSec = durToSec(cur.dur)
+  const [playedSec, setPlayedSec] = useState(0)
+  useEffect(() => { setPlayedSec(0) }, [trackIdx])
+  useEffect(() => {
+    if (!playing) return
+    const id = setInterval(() => {
+      setPlayedSec((s) => (s + 1 >= totalSec ? totalSec : s + 1))
+    }, 1000)
+    return () => clearInterval(id)
+  }, [playing, totalSec])
+  const progressPct = Math.min(100, (playedSec / Math.max(1, totalSec)) * 100)
+
   /* ── PLAYLIST PICKER ─────────────────────────────────── */
   if (view === 'playlists') {
     return (
@@ -1503,110 +1580,167 @@ function MusicApp({ onClose }) {
     )
   }
 
+  const nextTrack = queue[(trackIdx + 1) % queue.length]
+  const PLAYER_W = 280 // shared inner width for progress + transport — locks the
+                       // visual rhythm to the album-art axis instead of letting
+                       // the progress bar stretch full-panel.
+
   /* ── PLAYER VIEW (static, no-scroll) ─────────────────── */
   return (
     <Shell title="음악" onBack={onClose}>
-      {/* Playlist row + switcher */}
       <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        gap: 12, marginBottom: 22,
+        display: 'flex', flexDirection: 'column', height: '100%',
+        overflow: 'hidden',
       }}>
-        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        {/* Header: playlist label + switcher */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          gap: 12, flexShrink: 0,
+        }}>
+          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+            <div style={{
+              fontSize: 11, color: T.faint, fontWeight: 700,
+              letterSpacing: 1.6, textTransform: 'uppercase',
+            }}>지금 재생</div>
+            <div style={{
+              fontSize: 18, fontWeight: 700, color: T.text, letterSpacing: -0.4,
+              marginTop: 4,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>{playlist}</div>
+          </div>
+          <motion.button
+            whileTap={{ scale: 0.94 }}
+            onClick={() => setView('playlists')}
+            style={{
+              background: T.chipGrad, color: T.sub, border: T.border, cursor: 'pointer',
+              padding: '9px 14px', borderRadius: T.radiusChip,
+              fontSize: 13, fontWeight: 600, letterSpacing: -0.3, flexShrink: 0,
+              fontFamily: 'inherit',
+            }}
+          >플레이리스트 변경</motion.button>
+        </div>
+
+        {/* Main column — flex:1 distributes vertical space so the album sits
+            visually anchored and the bottom isn't empty. */}
+        <div style={{
+          flex: 1, minHeight: 0,
+          display: 'flex', flexDirection: 'column', alignItems: 'center',
+          justifyContent: 'center', gap: 0,
+        }}>
+          {/* Album art */}
+          <div style={{
+            width: 200, height: 200,
+            background: `linear-gradient(135deg, ${T.accentHi} 0%, #8b5cf6 100%)`,
+            borderRadius: T.radiusCard, display: 'flex',
+            alignItems: 'center', justifyContent: 'center',
+            color: 'white', fontSize: 84, fontWeight: 800,
+            boxShadow: `0 16px 34px ${T.accentGlow}`,
+            flexShrink: 0,
+          }}>♪</div>
+
+          {/* Title + artist — centered, controlled width */}
+          <div style={{
+            width: PLAYER_W, marginTop: 22, textAlign: 'center',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+          }}>
+            <div style={{
+              fontSize: 26, fontWeight: 700, letterSpacing: -0.8,
+              color: T.text, lineHeight: 1.2,
+              width: '100%',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>{cur.title}</div>
+            <div style={{
+              fontSize: 16, color: T.sub,
+              fontWeight: 500, letterSpacing: -0.3, lineHeight: 1.3,
+            }}>{cur.artist}</div>
+          </div>
+
+          {/* Progress — width locked to PLAYER_W so it tracks the album/transport */}
+          <div style={{ width: PLAYER_W, marginTop: 24 }}>
+            <div style={{
+              height: 4, background: T.divider, borderRadius: 2, position: 'relative',
+            }}>
+              <div style={{
+                width: `${progressPct}%`, height: '100%',
+                background: T.keyGrad, borderRadius: 2,
+                transition: 'width 1s linear',
+              }} />
+            </div>
+            <div style={{
+              display: 'flex', justifyContent: 'space-between',
+              fontSize: 12, color: T.faint, marginTop: 7, fontWeight: 600,
+              letterSpacing: 0.1, fontVariantNumeric: 'tabular-nums',
+            }}>
+              <span>{fmtMS(playedSec)}</span><span>{cur.dur}</span>
+            </div>
+          </div>
+
+          {/* Transport — prev / play / next, same horizontal extent */}
+          <div style={{
+            width: PLAYER_W, marginTop: 18,
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          }}>
+            <motion.button
+              whileTap={{ scale: 0.9 }}
+              onClick={goPrev}
+              style={{
+                width: 60, height: 60, borderRadius: '50%',
+                background: 'transparent', border: 'none', cursor: 'pointer',
+                color: T.text, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+              aria-label="이전 곡"
+            ><SkipBack size={34} /></motion.button>
+            <motion.button
+              whileTap={{ scale: 0.92 }}
+              onClick={() => setPlaying(p => !p)}
+              style={{
+                width: 80, height: 80, borderRadius: '50%', background: T.keyGrad,
+                border: 'none', cursor: 'pointer', color: 'white',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: `0 10px 22px ${T.accentGlow}`,
+              }}
+              aria-label={playing ? '일시정지' : '재생'}
+            >
+              {playing
+                ? <Pause size={34} fill="white" />
+                : <Play size={34} fill="white" style={{ marginLeft: 3 }} />}
+            </motion.button>
+            <motion.button
+              whileTap={{ scale: 0.9 }}
+              onClick={goNext}
+              style={{
+                width: 60, height: 60, borderRadius: '50%',
+                background: 'transparent', border: 'none', cursor: 'pointer',
+                color: T.text, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+              aria-label="다음 곡"
+            ><SkipForward size={34} /></motion.button>
+          </div>
+        </div>
+
+        {/* Next-up — anchors the bottom, single line, no scroll */}
+        <div style={{
+          flexShrink: 0,
+          background: T.chipGrad, border: T.border, borderRadius: T.radiusChip,
+          padding: '12px 16px',
+          display: 'flex', alignItems: 'center', gap: 12,
+        }}>
+          <SkipForward size={16} color={T.faint} />
           <div style={{
             fontSize: 11, color: T.faint, fontWeight: 700,
-            letterSpacing: 1.4, textTransform: 'uppercase',
-          }}>지금 재생</div>
+            letterSpacing: 1.4, textTransform: 'uppercase', flexShrink: 0,
+          }}>다음</div>
           <div style={{
-            fontSize: 20, fontWeight: 700, color: T.text, letterSpacing: -0.4,
-            marginTop: 4,
+            flex: 1, minWidth: 0,
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }}>{playlist}</div>
+            fontSize: 14, fontWeight: 600, color: T.text, letterSpacing: -0.3,
+          }}>
+            {nextTrack.title}
+            <span style={{ color: T.sub, fontWeight: 500, marginLeft: 8 }}>
+              {nextTrack.artist}
+            </span>
+          </div>
         </div>
-        <motion.button
-          whileTap={{ scale: 0.94 }}
-          onClick={() => setView('playlists')}
-          style={{
-            background: T.chipGrad, color: T.sub, border: T.border, cursor: 'pointer',
-            padding: '10px 16px', borderRadius: T.radiusChip,
-            fontSize: 14, fontWeight: 600, letterSpacing: -0.3, flexShrink: 0,
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            fontFamily: 'inherit',
-          }}
-        >플레이리스트 변경</motion.button>
-      </div>
-
-      {/* Now-playing card */}
-      <div style={{
-        display: 'flex', flexDirection: 'column', alignItems: 'center',
-        marginBottom: 26,
-      }}>
-        <div style={{
-          width: 220, height: 220,
-          background: `linear-gradient(135deg, ${T.accentHi} 0%, #8b5cf6 100%)`,
-          borderRadius: T.radiusCard, display: 'flex',
-          alignItems: 'center', justifyContent: 'center',
-          color: 'white', fontSize: 96, fontWeight: 800,
-          boxShadow: `0 16px 36px ${T.accentGlow}`,
-          marginBottom: 22,
-        }}>♪</div>
-        <div style={{
-          fontSize: 28, fontWeight: 700, letterSpacing: -0.8,
-          color: T.text, textAlign: 'center', lineHeight: 1.2,
-          maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        }}>{cur.title}</div>
-        <div style={{
-          fontSize: 17, color: T.sub, marginTop: 6,
-          fontWeight: 500, letterSpacing: -0.3,
-        }}>{cur.artist}</div>
-      </div>
-
-      {/* Progress (static visual context, not interactive) */}
-      <div style={{ marginBottom: 24 }}>
-        <div style={{
-          height: 5, background: T.divider, borderRadius: 3, position: 'relative',
-        }}>
-          <div style={{ width: '38%', height: '100%', background: T.keyGrad, borderRadius: 3 }} />
-        </div>
-        <div style={{
-          display: 'flex', justifyContent: 'space-between',
-          fontSize: 12, color: T.faint, marginTop: 6, fontWeight: 600,
-          fontVariantNumeric: 'tabular-nums',
-        }}>
-          <span>1:28</span><span>{cur.dur}</span>
-        </div>
-      </div>
-
-      {/* Transport — prev / play-pause / next */}
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 36,
-      }}>
-        <motion.button
-          whileTap={{ scale: 0.9 }}
-          onClick={goPrev}
-          style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 6, color: T.text }}
-          aria-label="이전 곡"
-        ><SkipBack size={42} /></motion.button>
-        <motion.button
-          whileTap={{ scale: 0.92 }}
-          onClick={() => setPlaying(p => !p)}
-          style={{
-            width: 88, height: 88, borderRadius: '50%', background: T.keyGrad,
-            border: 'none', cursor: 'pointer', color: 'white',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            boxShadow: `0 10px 24px ${T.accentGlow}`,
-          }}
-          aria-label={playing ? '일시정지' : '재생'}
-        >
-          {playing
-            ? <Pause size={40} fill="white" />
-            : <Play size={40} fill="white" style={{ marginLeft: 4 }} />}
-        </motion.button>
-        <motion.button
-          whileTap={{ scale: 0.9 }}
-          onClick={goNext}
-          style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 6, color: T.text }}
-          aria-label="다음 곡"
-        ><SkipForward size={42} /></motion.button>
       </div>
     </Shell>
   )
