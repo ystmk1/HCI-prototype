@@ -693,10 +693,76 @@ function loadKakaoSdk(key) {
   })
 }
 
-// Default "current location" — the prototype vehicle isn't actually moving,
-// so we anchor the map at a plausible Seoul starting point rather than
-// triggering a browser geolocation prompt during the experiment.
-const DEFAULT_CENTER = { lat: 37.4979, lng: 127.0276 } // 강남역
+// Fixed starting point — the prototype vehicle isn't actually moving, and the
+// experiment scenario is anchored at Hongik University (서울 마포구 와우산로 94).
+const DEFAULT_CENTER = {
+  lat: 37.5510, lng: 126.9251,
+  name: '홍익대학교', addr: '서울 마포구 와우산로 94',
+}
+
+/* ── OSRM routing helpers ────────────────────────────────
+   The Kakao JS SDK ships no driving directions. We call the public OSRM
+   demo router (OpenStreetMap-based) — free, no key, CORS-allowed — to get
+   a real road geometry and turn-by-turn maneuvers for in-app navigation.
+*/
+async function fetchDrivingRoute(origin, dest) {
+  const url = `https://router.project-osrm.org/route/v1/driving/${origin.lng},${origin.lat};${dest.lng},${dest.lat}?steps=true&geometries=geojson&overview=full`
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`OSRM ${res.status}`)
+  const data = await res.json()
+  if (data.code !== 'Ok' || !data.routes?.length) throw new Error(data.message || '경로를 찾을 수 없습니다')
+  const r = data.routes[0]
+  return {
+    distance: r.distance,                 // meters
+    duration: r.duration,                 // seconds
+    geometry: r.geometry.coordinates,     // [[lng, lat], ...]
+    steps: r.legs?.[0]?.steps || [],
+  }
+}
+
+function formatDuration(sec) {
+  const m = Math.max(1, Math.round(sec / 60))
+  if (m < 60) return `${m}분`
+  const h = Math.floor(m / 60), rm = m % 60
+  return rm ? `${h}시간 ${rm}분` : `${h}시간`
+}
+
+function formatDistance(m) {
+  if (m == null) return ''
+  if (m < 1000) return `${Math.round(m)} m`
+  return `${(m / 1000).toFixed(1)} km`
+}
+
+// Map OSRM maneuver types to Korean nav phrases.
+const MANEUVER_KO = {
+  depart:           ()    => '출발',
+  arrive:           ()    => '목적지 도착',
+  continue:         ()    => '직진',
+  'new name':       ()    => '직진',
+  turn: (m) => ({
+    left: '좌회전', right: '우회전',
+    'slight left': '왼쪽 방향', 'slight right': '오른쪽 방향',
+    'sharp left': '급좌회전', 'sharp right': '급우회전',
+    uturn: '유턴', straight: '직진',
+  }[m] || '회전'),
+  merge: (m) => m === 'left' ? '좌측 합류' : m === 'right' ? '우측 합류' : '합류',
+  fork:  (m) => m === 'left' ? '왼쪽 갈래길' : m === 'right' ? '오른쪽 갈래길' : '갈래길',
+  'end of road': (m) => m === 'left' ? '도로 끝에서 좌측' : m === 'right' ? '도로 끝에서 우측' : '도로 끝',
+  roundabout:        () => '회전교차로 진입',
+  rotary:            () => '회전교차로 진입',
+  'exit roundabout': () => '회전교차로에서 빠져나옴',
+  'exit rotary':     () => '회전교차로에서 빠져나옴',
+  'on ramp':         () => '진입 램프',
+  'off ramp':        () => '진출 램프',
+  'use lane':        () => '차로 이용',
+  notification:      () => '안내',
+}
+
+function maneuverText(step) {
+  const t = step?.maneuver?.type
+  const fn = t && MANEUVER_KO[t]
+  return fn ? fn(step.maneuver.modifier) : (t || '')
+}
 
 function NavigationAppMap({ onClose }) {
   const mapEl = useRef(null)
@@ -710,6 +776,10 @@ function NavigationAppMap({ onClose }) {
   const [destination, setDestination] = useState(null)
   // 'init' | 'loading' | 'ready' | 'no-key' | error string
   const [status, setStatus] = useState('init')
+  const [route, setRoute] = useState(null)          // OSRM result { distance, duration, geometry, steps }
+  const [routeLoading, setRouteLoading] = useState(false)
+  const [routeError, setRouteError] = useState(null)
+  const [navigating, setNavigating] = useState(false)
 
   useEffect(() => {
     if (!KAKAO_JS_KEY) { setStatus('no-key'); return }
@@ -749,7 +819,20 @@ function NavigationAppMap({ onClose }) {
     )
   }
 
-  const chooseDestination = (p) => {
+  const drawPolyline = (path, dashed = false) => {
+    const kakao = window.kakao
+    if (polylineRef.current) polylineRef.current.setMap(null)
+    polylineRef.current = new kakao.maps.Polyline({
+      path,
+      strokeWeight: dashed ? 4 : 6,
+      strokeColor: '#2d7cf1',
+      strokeOpacity: dashed ? 0.55 : 0.92,
+      strokeStyle: dashed ? 'shortdash' : 'solid',
+      map: mapRef.current,
+    })
+  }
+
+  const chooseDestination = async (p) => {
     const kakao = window.kakao
     const lat = parseFloat(p.y), lng = parseFloat(p.x)
     const dest = {
@@ -758,22 +841,17 @@ function NavigationAppMap({ onClose }) {
       addr: p.road_address_name || p.address_name,
       lat, lng,
     }
+    // Drop the destination marker immediately for feedback.
     if (destMarkerRef.current) destMarkerRef.current.setMap(null)
     destMarkerRef.current = new kakao.maps.Marker({
       position: new kakao.maps.LatLng(lat, lng),
       map: mapRef.current,
     })
-    if (polylineRef.current) polylineRef.current.setMap(null)
-    polylineRef.current = new kakao.maps.Polyline({
-      // Straight A→B line — the JS SDK doesn't ship routing; use the external
-      // Kakao Maps link below for the actual car directions.
-      path: [
-        new kakao.maps.LatLng(DEFAULT_CENTER.lat, DEFAULT_CENTER.lng),
-        new kakao.maps.LatLng(lat, lng),
-      ],
-      strokeWeight: 5, strokeColor: '#2d7cf1', strokeOpacity: 0.85, strokeStyle: 'solid',
-      map: mapRef.current,
-    })
+    // Provisional straight line while the route is being fetched.
+    drawPolyline([
+      new kakao.maps.LatLng(DEFAULT_CENTER.lat, DEFAULT_CENTER.lng),
+      new kakao.maps.LatLng(lat, lng),
+    ], true)
     const bounds = new kakao.maps.LatLngBounds()
     bounds.extend(new kakao.maps.LatLng(DEFAULT_CENTER.lat, DEFAULT_CENTER.lng))
     bounds.extend(new kakao.maps.LatLng(lat, lng))
@@ -781,24 +859,49 @@ function NavigationAppMap({ onClose }) {
     setDestination(dest)
     setResults([])
     setQuery(p.place_name)
+    setRoute(null)
+    setRouteError(null)
+    setRouteLoading(true)
+
+    // Fetch the actual road geometry + turn-by-turn steps.
+    try {
+      const r = await fetchDrivingRoute(
+        { lat: DEFAULT_CENTER.lat, lng: DEFAULT_CENTER.lng },
+        { lat, lng },
+      )
+      setRoute(r)
+      // Replace the provisional line with the real route geometry.
+      drawPolyline(r.geometry.map(([lo, la]) => new kakao.maps.LatLng(la, lo)))
+      const rb = new kakao.maps.LatLngBounds()
+      r.geometry.forEach(([lo, la]) => rb.extend(new kakao.maps.LatLng(la, lo)))
+      mapRef.current.setBounds(rb, 60, 60, 60, 60)
+    } catch (e) {
+      console.warn('[osrm] route failed:', e)
+      setRouteError(e.message || '경로 계산 실패')
+    } finally {
+      setRouteLoading(false)
+    }
   }
 
   const clearDestination = () => {
     if (destMarkerRef.current) { destMarkerRef.current.setMap(null); destMarkerRef.current = null }
     if (polylineRef.current) { polylineRef.current.setMap(null); polylineRef.current = null }
     setDestination(null)
+    setRoute(null)
+    setRouteError(null)
+    setNavigating(false)
+    setStepIdx(0)
     if (mapRef.current) {
       mapRef.current.setCenter(new window.kakao.maps.LatLng(DEFAULT_CENTER.lat, DEFAULT_CENTER.lng))
       mapRef.current.setLevel(4)
     }
   }
 
-  const startCarRoute = () => {
-    if (!destination) return
-    // Real driving directions live in Kakao Maps — open with car mode set.
-    const url = `https://map.kakao.com/link/by/car/현재위치,${DEFAULT_CENTER.lat},${DEFAULT_CENTER.lng}/${encodeURIComponent(destination.name)},${destination.lat},${destination.lng}`
-    window.open(url, '_blank', 'noopener,noreferrer')
-  }
+  // Real navigation = the Kakao Maps route page embedded as an iframe inside
+  // the panel ("web within web"). The OSRM polyline + ETA on our own map
+  // serves as the destination preview before the user commits to navigation.
+  const startNavigation = () => { if (destination) setNavigating(true) }
+  const endNavigation = () => setNavigating(false)
 
   return (
     <Shell title="내비게이션" onBack={onClose}>
@@ -842,18 +945,9 @@ function NavigationAppMap({ onClose }) {
           </div>
         )}
 
-        {/* Mode chip (top-right) */}
-        <div style={{
-          position: 'absolute', top: 14, right: 14,
-          background: 'rgba(255,255,255,0.94)', border: T.border, borderRadius: 999,
-          padding: '6px 12px', fontSize: 13, fontWeight: 700, color: T.sub,
-          display: 'flex', alignItems: 'center', gap: 6, zIndex: 3,
-        }}>
-          <NavIcon size={14} color={T.accent} /> 자동차
-        </div>
-
-        {/* Floating search bar (+ results dropdown) */}
-        <div style={{ position: 'absolute', top: 14, left: 14, right: 110, zIndex: 5 }}>
+        {/* Floating search bar (+ results dropdown) — hidden while navigating */}
+        {!navigating && (
+        <div style={{ position: 'absolute', top: 14, left: 14, right: 14, zIndex: 5 }}>
           <div style={{
             display: 'flex', alignItems: 'center', gap: 10,
             background: T.card, border: T.border, borderRadius: 999,
@@ -923,10 +1017,11 @@ function NavigationAppMap({ onClose }) {
             </div>
           )}
         </div>
+        )}
 
-        {/* Destination card (bottom) */}
+        {/* Destination card (bottom) — pre-navigation */}
         <AnimatePresence>
-          {destination && (
+          {destination && !navigating && (
             <motion.div
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
@@ -956,17 +1051,86 @@ function NavigationAppMap({ onClose }) {
                   style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: T.faint, padding: 4 }}
                 ><X size={18} /></motion.button>
               </div>
+              {routeLoading ? (
+                <div style={{ fontSize: 13, color: T.sub, marginBottom: 10 }}>경로 계산 중…</div>
+              ) : routeError ? (
+                <div style={{ fontSize: 13, color: T.danger, marginBottom: 10 }}>
+                  경로를 계산하지 못했어요 ({routeError}) — 직선 거리만 표시됩니다.
+                </div>
+              ) : route ? (
+                <div style={{ display: 'flex', gap: 16, marginBottom: 10, fontSize: 14, color: T.sub }}>
+                  <span>예상 시간 <b style={{ color: T.text, fontWeight: 700 }}>{formatDuration(route.duration)}</b></span>
+                  <span>거리 <b style={{ color: T.text, fontWeight: 700 }}>{formatDistance(route.distance)}</b></span>
+                </div>
+              ) : null}
               <motion.button
                 whileTap={{ scale: 0.97 }}
-                onClick={startCarRoute}
+                onClick={startNavigation}
+                disabled={!route}
                 style={{
                   width: '100%', background: T.accent, color: 'white', border: 'none',
                   borderRadius: 14, padding: '12px 14px', fontSize: 15, fontWeight: 700,
-                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                  cursor: route ? 'pointer' : 'default',
+                  opacity: route ? 1 : 0.4,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                 }}
               >
-                <NavIcon size={18} /> 자동차로 길안내 시작
+                <NavIcon size={18} /> 길안내 시작
               </motion.button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Embedded Kakao Maps route — full-panel overlay ("web within web") */}
+        <AnimatePresence>
+          {navigating && destination && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.22 }}
+              style={{
+                position: 'absolute', inset: 0, zIndex: 7,
+                background: T.card, borderRadius: 24, overflow: 'hidden',
+                display: 'flex', flexDirection: 'column',
+              }}
+            >
+              {/* Header with back */}
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '10px 14px', borderBottom: `1px solid ${T.divider}`,
+                background: T.card, flexShrink: 0,
+              }}>
+                <motion.button
+                  whileTap={{ scale: 0.92 }}
+                  onClick={endNavigation}
+                  style={{
+                    background: 'transparent', border: 'none', cursor: 'pointer',
+                    color: T.text, padding: 6, borderRadius: 12,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}
+                ><ChevronLeft size={24} strokeWidth={2.2} /></motion.button>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    fontSize: 15, fontWeight: 700, color: T.text,
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}>{destination.name}</div>
+                  <div style={{ fontSize: 11, color: T.faint }}>카카오맵 길안내</div>
+                </div>
+                {route && (
+                  <div style={{
+                    fontSize: 12, fontWeight: 700, color: T.accent,
+                    padding: '4px 10px', background: T.accentSoft, borderRadius: 999,
+                    flexShrink: 0,
+                  }}>{formatDuration(route.duration)} · {formatDistance(route.distance)}</div>
+                )}
+              </div>
+              <iframe
+                title="Kakao Maps route"
+                src={`https://map.kakao.com/link/by/car/${encodeURIComponent(DEFAULT_CENTER.name)},${DEFAULT_CENTER.lat},${DEFAULT_CENTER.lng}/${encodeURIComponent(destination.name)},${destination.lat},${destination.lng}`}
+                style={{ flex: 1, border: 'none', width: '100%' }}
+                referrerPolicy="strict-origin-when-cross-origin"
+              />
             </motion.div>
           )}
         </AnimatePresence>
