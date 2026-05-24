@@ -791,18 +791,22 @@ function formatClockTime(d) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
-// Minimal-nav stat row: small label / large value, three sizes for hierarchy.
-function NavStat({ label, value, size = 'md' }) {
-  const valueSize = size === 'lg' ? 40 : size === 'sm' ? 18 : 28
-  const valueWeight = size === 'lg' ? 800 : 700
-  const valueColor = size === 'sm' ? T.sub : T.text
+// Cell for the secondary metrics row of the in-app nav view: small uppercase
+// label over a tabular-numeric value, optionally divided by a hair-line.
+function NavMetric({ label, value, divider }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-      <span style={{ fontSize: 14, color: T.sub, fontWeight: 600, letterSpacing: -0.2 }}>{label}</span>
-      <span style={{
-        fontSize: valueSize, fontWeight: valueWeight, color: valueColor,
-        letterSpacing: -0.8, fontVariantNumeric: 'tabular-nums',
-      }}>{value}</span>
+    <div style={{
+      padding: '14px 8px', textAlign: 'center',
+      borderLeft: divider ? `1px solid ${T.divider}` : 'none',
+    }}>
+      <div style={{
+        fontSize: 11, color: T.faint, fontWeight: 700, letterSpacing: 0.6,
+        textTransform: 'uppercase',
+      }}>{label}</div>
+      <div style={{
+        fontSize: 22, fontWeight: 700, color: T.text, letterSpacing: -0.6,
+        marginTop: 4, lineHeight: 1.1, fontVariantNumeric: 'tabular-nums',
+      }}>{value}</div>
     </div>
   )
 }
@@ -970,79 +974,9 @@ function NavigationAppMap({ onClose, activeRoute, setActiveRoute }) {
     return () => clearInterval(id)
   }, [activeRoute])
 
-  // ── Minimal nav view (no map) — shown once the user has confirmed the
-  // route. Hides the map; communicates the trip with a route-shape SVG +
-  // text-hierarchy stats. The AI gets the same info via gemini.js's
-  // navigation context so spoken questions stay coherent with this screen.
-  if (activeRoute) {
-    const dep = new Date(activeRoute.departureIso)
-    const arr = new Date(activeRoute.baseArrivalIso)
-    const now = new Date()
-    const remainingMin = Math.max(0, Math.round((arr - now) / 60_000))
-    const svg = buildRouteSvg(activeRoute.geometry, 360, 200)
-    return (
-      <Shell title="내비게이션 안내" onBack={onClose}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 26, paddingTop: 6 }}>
-          {/* Destination header */}
-          <div>
-            <div style={{ fontSize: 12, color: T.faint, fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>안내 중</div>
-            <div style={{
-              fontSize: 28, fontWeight: 700, color: T.text, letterSpacing: -0.6,
-              marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-            }}>{activeRoute.destination.name}</div>
-            <div style={{
-              fontSize: 14, color: T.sub, marginTop: 2,
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-            }}>{activeRoute.destination.addr}</div>
-          </div>
-
-          {/* Route line shape (no basemap) */}
-          <div style={{
-            background: T.card, border: T.border, borderRadius: 24,
-            padding: '14px 10px', display: 'flex', justifyContent: 'center',
-          }}>
-            <svg width={360} height={200} viewBox="0 0 360 200" style={{ width: '100%', height: 'auto', maxWidth: 360 }}>
-              <path
-                d={svg.d}
-                stroke="#2d7cf1"
-                strokeWidth={5}
-                fill="none"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                opacity={0.95}
-              />
-              <circle cx={svg.start[0]} cy={svg.start[1]} r={8} fill="#2d7cf1" />
-              <circle cx={svg.start[0]} cy={svg.start[1]} r={3} fill="#ffffff" />
-              <circle cx={svg.end[0]} cy={svg.end[1]} r={10} fill="#e85d5d" />
-              <circle cx={svg.end[0]} cy={svg.end[1]} r={3.5} fill="#ffffff" />
-            </svg>
-          </div>
-
-          {/* Stats — strong text hierarchy */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <NavStat label="예상 도착" value={formatClockTime(arr)} size="lg" />
-            <NavStat label="잔여 시간" value={`${remainingMin}분`} />
-            <NavStat label="남은 거리" value={formatDistance(activeRoute.distanceM)} />
-            <NavStat label="출발 시각" value={formatClockTime(dep)} size="sm" />
-          </div>
-
-          <motion.button
-            whileTap={{ scale: 0.97 }}
-            onClick={endActiveRoute}
-            style={{
-              background: T.card, color: T.sub, border: T.border, borderRadius: 14,
-              padding: '14px', fontSize: 15, fontWeight: 700, cursor: 'pointer',
-              marginTop: 4,
-            }}
-          >안내 종료</motion.button>
-        </div>
-      </Shell>
-    )
-  }
-
   return (
     <Shell title="내비게이션" onBack={onClose}>
-      <div style={{ position: 'relative', height: '100%' }}>
+      <div style={{ position: 'relative', height: '100%', overflow: 'hidden', borderRadius: 24 }}>
         {/* Map */}
         <div
           ref={mapEl}
@@ -1214,6 +1148,116 @@ function NavigationAppMap({ onClose, activeRoute, setActiveRoute }) {
               ) : null}
             </motion.div>
           )}
+        </AnimatePresence>
+
+        {/* Minimal in-app nav view — overlay (map stays mounted underneath) */}
+        <AnimatePresence>
+          {activeRoute && (() => {
+            const dep = new Date(activeRoute.departureIso)
+            const arr = new Date(activeRoute.baseArrivalIso)
+            const now = new Date()
+            const remainingMin = Math.max(0, Math.round((arr - now) / 60_000))
+            const svg = buildRouteSvg(activeRoute.geometry, 360, 180)
+            return (
+              <motion.div
+                key="nav-overlay"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                style={{
+                  position: 'absolute', inset: 0, zIndex: 10,
+                  background: T.bg, overflowY: 'auto',
+                  padding: '6px 4px 14px',
+                }}
+              >
+                {/* Destination header */}
+                <div style={{ padding: '4px 4px 0' }}>
+                  <div style={{
+                    fontSize: 11, color: T.faint, fontWeight: 700,
+                    letterSpacing: 1.6, textTransform: 'uppercase',
+                  }}>안내 중</div>
+                  <div style={{
+                    fontSize: 30, fontWeight: 700, color: T.text,
+                    letterSpacing: -0.8, lineHeight: 1.2, marginTop: 8,
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}>{activeRoute.destination.name}</div>
+                  <div style={{
+                    fontSize: 14, color: T.sub, marginTop: 4,
+                    letterSpacing: -0.2, lineHeight: 1.4,
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}>{activeRoute.destination.addr}</div>
+                </div>
+
+                {/* Abstract route line — no basemap, just shape */}
+                <div style={{
+                  marginTop: 22,
+                  background: T.chipGrad, border: T.border, borderRadius: 24,
+                  padding: '18px 14px', display: 'flex', justifyContent: 'center',
+                  boxShadow: T.shadow,
+                }}>
+                  <svg
+                    width="100%" height={180}
+                    viewBox="0 0 360 180"
+                    preserveAspectRatio="xMidYMid meet"
+                    style={{ maxWidth: 360, display: 'block' }}
+                  >
+                    <path
+                      d={svg.d}
+                      stroke={T.accent}
+                      strokeWidth={5}
+                      fill="none"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      opacity={0.95}
+                    />
+                    <circle cx={svg.start[0]} cy={svg.start[1]} r={9} fill={T.accent} />
+                    <circle cx={svg.start[0]} cy={svg.start[1]} r={3.5} fill="#ffffff" />
+                    <circle cx={svg.end[0]} cy={svg.end[1]} r={11} fill="#e85d5d" />
+                    <circle cx={svg.end[0]} cy={svg.end[1]} r={4} fill="#ffffff" />
+                  </svg>
+                </div>
+
+                {/* Hero metric — 도착 예정 */}
+                <div style={{ marginTop: 26, padding: '0 4px' }}>
+                  <div style={{
+                    fontSize: 11, color: T.faint, fontWeight: 700,
+                    letterSpacing: 1.6, textTransform: 'uppercase',
+                  }}>도착 예정</div>
+                  <div style={{
+                    fontSize: 60, fontWeight: 700, color: T.text,
+                    letterSpacing: -2.4, lineHeight: 1, marginTop: 6,
+                    fontVariantNumeric: 'tabular-nums',
+                  }}>{formatClockTime(arr)}</div>
+                </div>
+
+                {/* Secondary metrics row */}
+                <div style={{
+                  marginTop: 20,
+                  display: 'grid', gridTemplateColumns: '1fr 1fr 1fr',
+                  background: T.card, border: T.border, borderRadius: 22,
+                  overflow: 'hidden', boxShadow: T.shadow,
+                }}>
+                  <NavMetric label="잔여" value={`${remainingMin}분`} />
+                  <NavMetric label="거리" value={formatDistance(activeRoute.distanceM)} divider />
+                  <NavMetric label="출발" value={formatClockTime(dep)} divider />
+                </div>
+
+                {/* End button — subtle outline (consistent w/ system hierarchy) */}
+                <motion.button
+                  whileTap={{ scale: 0.97 }}
+                  onClick={endActiveRoute}
+                  style={{
+                    marginTop: 22, width: '100%',
+                    background: T.card, color: T.sub, border: T.border,
+                    borderRadius: 14, padding: '13px 16px',
+                    fontSize: 14, fontWeight: 600, letterSpacing: -0.2,
+                    cursor: 'pointer', fontFamily: 'inherit',
+                  }}
+                >안내 종료</motion.button>
+              </motion.div>
+            )
+          })()}
         </AnimatePresence>
 
       </div>
