@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   ChevronLeft, Search, MapPin, Navigation as NavIcon,
@@ -661,6 +661,321 @@ function NavQuickAction({ icon, label, active, onClick }) {
 }
 
 /* ============================================================
+   Navigation (Kakao Maps — map + place search)
+   ============================================================ */
+
+const KAKAO_JS_KEY = import.meta.env.VITE_KAKAO_JS_KEY
+
+// Idempotent loader for the Kakao Maps JS SDK (with the `services` library
+// for place search). Loaded only when the Navigation app first opens.
+function loadKakaoSdk(key) {
+  if (typeof window === 'undefined') return Promise.reject(new Error('no window'))
+  if (window.kakao && window.kakao.maps && window.kakao.maps.services) return Promise.resolve(window.kakao)
+  return new Promise((resolve, reject) => {
+    const ready = () => {
+      if (window.kakao?.maps?.load) window.kakao.maps.load(() => resolve(window.kakao))
+      else reject(new Error('Kakao SDK shape unexpected'))
+    }
+    const existing = document.querySelector('script[data-kakao-sdk]')
+    if (existing) {
+      if (window.kakao?.maps) return ready()
+      existing.addEventListener('load', ready, { once: true })
+      existing.addEventListener('error', () => reject(new Error('Kakao SDK load failed')), { once: true })
+      return
+    }
+    const s = document.createElement('script')
+    s.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${encodeURIComponent(key)}&libraries=services&autoload=false`
+    s.async = true
+    s.dataset.kakaoSdk = '1'
+    s.onload = ready
+    s.onerror = () => reject(new Error('Kakao SDK load failed'))
+    document.head.appendChild(s)
+  })
+}
+
+// Default "current location" — the prototype vehicle isn't actually moving,
+// so we anchor the map at a plausible Seoul starting point rather than
+// triggering a browser geolocation prompt during the experiment.
+const DEFAULT_CENTER = { lat: 37.4979, lng: 127.0276 } // 강남역
+
+function NavigationAppMap({ onClose }) {
+  const mapEl = useRef(null)
+  const mapRef = useRef(null)
+  const placesRef = useRef(null)
+  const destMarkerRef = useRef(null)
+  const polylineRef = useRef(null)
+
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState([])
+  const [destination, setDestination] = useState(null)
+  // 'init' | 'loading' | 'ready' | 'no-key' | error string
+  const [status, setStatus] = useState('init')
+
+  useEffect(() => {
+    if (!KAKAO_JS_KEY) { setStatus('no-key'); return }
+    let cancelled = false
+    setStatus('loading')
+    loadKakaoSdk(KAKAO_JS_KEY)
+      .then((kakao) => {
+        if (cancelled || !mapEl.current) return
+        const center = new kakao.maps.LatLng(DEFAULT_CENTER.lat, DEFAULT_CENTER.lng)
+        const map = new kakao.maps.Map(mapEl.current, { center, level: 4 })
+        mapRef.current = map
+        // Current-location indicator (blue dot).
+        new kakao.maps.Circle({
+          center, radius: 32,
+          strokeWeight: 4, strokeColor: '#2d7cf1', strokeOpacity: 0.95,
+          fillColor: '#2d7cf1', fillOpacity: 0.35, map,
+        })
+        placesRef.current = new kakao.maps.services.Places()
+        setStatus('ready')
+      })
+      .catch((e) => { if (!cancelled) setStatus(`error: ${e.message || 'load failed'}`) })
+    return () => { cancelled = true }
+  }, [])
+
+  const runSearch = () => {
+    if (!placesRef.current || !query.trim()) { setResults([]); return }
+    const kakao = window.kakao
+    placesRef.current.keywordSearch(
+      query.trim(),
+      (data, statusCode) => {
+        if (statusCode !== kakao.maps.services.Status.OK) { setResults([]); return }
+        setResults(data.slice(0, 8))
+      },
+      // Bias the search toward our current map center so "강남역 카페" finds
+      // nearby spots first, not a same-named place 200km away.
+      { location: new kakao.maps.LatLng(DEFAULT_CENTER.lat, DEFAULT_CENTER.lng), radius: 20000 },
+    )
+  }
+
+  const chooseDestination = (p) => {
+    const kakao = window.kakao
+    const lat = parseFloat(p.y), lng = parseFloat(p.x)
+    const dest = {
+      id: p.id,
+      name: p.place_name,
+      addr: p.road_address_name || p.address_name,
+      lat, lng,
+    }
+    if (destMarkerRef.current) destMarkerRef.current.setMap(null)
+    destMarkerRef.current = new kakao.maps.Marker({
+      position: new kakao.maps.LatLng(lat, lng),
+      map: mapRef.current,
+    })
+    if (polylineRef.current) polylineRef.current.setMap(null)
+    polylineRef.current = new kakao.maps.Polyline({
+      // Straight A→B line — the JS SDK doesn't ship routing; use the external
+      // Kakao Maps link below for the actual car directions.
+      path: [
+        new kakao.maps.LatLng(DEFAULT_CENTER.lat, DEFAULT_CENTER.lng),
+        new kakao.maps.LatLng(lat, lng),
+      ],
+      strokeWeight: 5, strokeColor: '#2d7cf1', strokeOpacity: 0.85, strokeStyle: 'solid',
+      map: mapRef.current,
+    })
+    const bounds = new kakao.maps.LatLngBounds()
+    bounds.extend(new kakao.maps.LatLng(DEFAULT_CENTER.lat, DEFAULT_CENTER.lng))
+    bounds.extend(new kakao.maps.LatLng(lat, lng))
+    mapRef.current.setBounds(bounds, 80, 80, 80, 80)
+    setDestination(dest)
+    setResults([])
+    setQuery(p.place_name)
+  }
+
+  const clearDestination = () => {
+    if (destMarkerRef.current) { destMarkerRef.current.setMap(null); destMarkerRef.current = null }
+    if (polylineRef.current) { polylineRef.current.setMap(null); polylineRef.current = null }
+    setDestination(null)
+    if (mapRef.current) {
+      mapRef.current.setCenter(new window.kakao.maps.LatLng(DEFAULT_CENTER.lat, DEFAULT_CENTER.lng))
+      mapRef.current.setLevel(4)
+    }
+  }
+
+  const startCarRoute = () => {
+    if (!destination) return
+    // Real driving directions live in Kakao Maps — open with car mode set.
+    const url = `https://map.kakao.com/link/by/car/현재위치,${DEFAULT_CENTER.lat},${DEFAULT_CENTER.lng}/${encodeURIComponent(destination.name)},${destination.lat},${destination.lng}`
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+
+  return (
+    <Shell title="내비게이션" onBack={onClose}>
+      <div style={{ position: 'relative', height: '100%' }}>
+        {/* Map */}
+        <div
+          ref={mapEl}
+          style={{
+            position: 'absolute', inset: 0, borderRadius: 24, overflow: 'hidden',
+            border: T.border, background: '#e6e8ee',
+          }}
+        />
+
+        {/* Status overlay */}
+        {status !== 'ready' && (
+          <div style={{
+            position: 'absolute', inset: 0, borderRadius: 24,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'rgba(247,248,250,0.94)', padding: 24, textAlign: 'center',
+            zIndex: 4,
+          }}>
+            {status === 'no-key' && (
+              <div style={{ fontSize: 16, color: T.sub, lineHeight: 1.55 }}>
+                카카오맵 키가 설정되지 않았습니다.<br />
+                <span style={{ fontFamily: 'monospace', color: T.text }}>VITE_KAKAO_JS_KEY</span>를 <span style={{ fontFamily: 'monospace' }}>.env.local</span>에 추가해 주세요.
+              </div>
+            )}
+            {status === 'loading' && (
+              <div style={{ fontSize: 18, color: T.sub }}>지도 불러오는 중…</div>
+            )}
+            {typeof status === 'string' && status.startsWith('error') && (
+              <div style={{ fontSize: 15, color: T.danger, lineHeight: 1.55, maxWidth: 360 }}>
+                {status}
+                <div style={{ fontSize: 13, color: T.sub, marginTop: 10, fontWeight: 500 }}>
+                  주로 카카오 개발자센터의 <b>Web 플랫폼 도메인</b>에 현재 주소가 등록되지 않아서 생깁니다.<br />
+                  developers.kakao.com → 내 앱 → 플랫폼 → Web → 사이트 도메인에<br />
+                  <span style={{ fontFamily: 'monospace' }}>http://localhost:{typeof window !== 'undefined' ? window.location.port : '5173'}</span> 를 추가해 주세요.
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Mode chip (top-right) */}
+        <div style={{
+          position: 'absolute', top: 14, right: 14,
+          background: 'rgba(255,255,255,0.94)', border: T.border, borderRadius: 999,
+          padding: '6px 12px', fontSize: 13, fontWeight: 700, color: T.sub,
+          display: 'flex', alignItems: 'center', gap: 6, zIndex: 3,
+        }}>
+          <NavIcon size={14} color={T.accent} /> 자동차
+        </div>
+
+        {/* Floating search bar (+ results dropdown) */}
+        <div style={{ position: 'absolute', top: 14, left: 14, right: 110, zIndex: 5 }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            background: T.card, border: T.border, borderRadius: 999,
+            padding: '0 14px', height: 52, boxShadow: T.shadow,
+          }}>
+            <Search size={20} color={T.faint} />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && runSearch()}
+              placeholder="목적지 검색 (예: 강남역, 코엑스)"
+              disabled={status !== 'ready'}
+              style={{
+                flex: 1, minWidth: 0, border: 'none', outline: 'none',
+                background: 'transparent', fontSize: 16, color: T.text,
+                fontFamily: 'inherit',
+              }}
+            />
+            {query && (
+              <motion.button
+                whileTap={{ scale: 0.92 }}
+                onClick={() => { setQuery(''); setResults([]) }}
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 4, color: T.faint }}
+              ><X size={18} /></motion.button>
+            )}
+            <motion.button
+              whileTap={{ scale: 0.94 }}
+              onClick={runSearch}
+              disabled={status !== 'ready' || !query.trim()}
+              style={{
+                background: T.accent, color: 'white', border: 'none', borderRadius: 999,
+                padding: '7px 14px', cursor: 'pointer', fontSize: 14, fontWeight: 700,
+                opacity: status === 'ready' && query.trim() ? 1 : 0.4,
+              }}
+            >검색</motion.button>
+          </div>
+
+          {results.length > 0 && (
+            <div style={{
+              marginTop: 8, background: T.card, border: T.border, borderRadius: 18,
+              boxShadow: T.shadow, maxHeight: 320, overflowY: 'auto',
+            }}>
+              {results.map((p) => (
+                <motion.button
+                  key={p.id}
+                  whileTap={{ scale: 0.99 }}
+                  onClick={() => chooseDestination(p)}
+                  style={{
+                    width: '100%', textAlign: 'left', background: 'transparent',
+                    border: 'none', borderBottom: `1px solid ${T.divider}`, cursor: 'pointer',
+                    padding: '13px 16px', display: 'flex', alignItems: 'center', gap: 12,
+                  }}
+                >
+                  <MapPin size={18} color={T.accent} style={{ flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{
+                      fontSize: 16, fontWeight: 600, color: T.text,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>{p.place_name}</div>
+                    <div style={{
+                      fontSize: 13, color: T.sub,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>{p.road_address_name || p.address_name}</div>
+                  </div>
+                </motion.button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Destination card (bottom) */}
+        <AnimatePresence>
+          {destination && (
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 16 }}
+              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+              style={{
+                position: 'absolute', bottom: 14, left: 14, right: 14, zIndex: 5,
+                background: T.card, border: T.border, borderRadius: 22,
+                padding: '14px 16px', boxShadow: T.shadow,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                <MapPin size={20} color={T.accent} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    fontSize: 17, fontWeight: 700, color: T.text,
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}>{destination.name}</div>
+                  <div style={{
+                    fontSize: 13, color: T.sub,
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}>{destination.addr}</div>
+                </div>
+                <motion.button
+                  whileTap={{ scale: 0.92 }}
+                  onClick={clearDestination}
+                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: T.faint, padding: 4 }}
+                ><X size={18} /></motion.button>
+              </div>
+              <motion.button
+                whileTap={{ scale: 0.97 }}
+                onClick={startCarRoute}
+                style={{
+                  width: '100%', background: T.accent, color: 'white', border: 'none',
+                  borderRadius: 14, padding: '12px 14px', fontSize: 15, fontWeight: 700,
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                }}
+              >
+                <NavIcon size={18} /> 자동차로 길안내 시작
+              </motion.button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </Shell>
+  )
+}
+
+/* ============================================================
    Phone
    ============================================================ */
 
@@ -1263,7 +1578,7 @@ export default function AppView({ id, onClose }) {
         transition={{ duration: 0.18 }}
         style={{ width: '100%', height: '100%' }}
       >
-        {id === 'Navigation' && <NavigationApp onClose={onClose} />}
+        {id === 'Navigation' && <NavigationAppMap onClose={onClose} />}
         {id === 'Phone' && <PhoneApp onClose={onClose} />}
         {id === 'Music' && <MusicApp onClose={onClose} />}
         {id === 'Mail' && <MailApp onClose={onClose} />}

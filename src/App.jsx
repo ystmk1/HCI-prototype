@@ -96,6 +96,43 @@ function ListeningWave() {
   )
 }
 
+// Idle-screen greeting — one random pair is picked per mount (i.e. each time
+// the conversation is cleared and the user returns to the home view). A
+// time-of-day variant is included in the pool so it can surface naturally.
+function pickGreeting() {
+  const h = new Date().getHours()
+  const tod =
+    h >= 5 && h < 12  ? ['좋은 아침입니다.',  '오늘은 어디로 가실까요?'] :
+    h >= 12 && h < 18 ? ['좋은 오후예요.',    '편하게 말 걸어주세요.'] :
+    h >= 18 && h < 22 ? ['좋은 저녁입니다.',  '오늘도 수고하셨어요.'] :
+                        ['늦은 밤이네요.',    '조용히 모셔다 드릴게요.']
+  const pool = [
+    ['반갑습니다!',                  '무엇을 도와드릴까요?'],
+    ['안녕하세요.',                  '오늘 어디로 모셔다 드릴까요?'],
+    ['"자인아"라고 불러보세요.',     '대화를 시작해봐요.'],
+    ['"자인아"라고 깨워주세요.',     '필요한 게 있으면 말씀하세요.'],
+    ['준비됐어요.',                  '어디든 안전하게 모실게요.'],
+    ['오늘도 안전 주행 중이에요.',   '운전은 제가 할게요, 편히 쉬세요.'],
+    tod,
+  ]
+  return pool[Math.floor(Math.random() * pool.length)]
+}
+
+function IdleGreeting() {
+  const [greeting] = useState(pickGreeting)
+  return (
+    <motion.div
+      className="hero-title"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.6, delay: 0.1, ease: 'easeOut' }}
+    >
+      <p>{greeting[0]}</p>
+      <p>{greeting[1]}</p>
+    </motion.div>
+  )
+}
+
 // ── Vehicle HMI (participant-facing screen) ────────────────
 
 function VehicleHMI() {
@@ -517,16 +554,8 @@ function VehicleHMI() {
                 transition={{ duration: 0.4 }}
                 style={{ position: 'absolute', inset: 0 }}
               >
-                {/* Hero Title */}
-                <motion.div
-                  className="hero-title"
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.6, delay: 0.1, ease: 'easeOut' }}
-                >
-                  <p>반갑습니다!</p>
-                  <p>무엇을 도와드릴까요?</p>
-                </motion.div>
+                {/* Hero Title — random greeting picked per idle-screen mount */}
+                <IdleGreeting />
 
                 {/* Suggestion Chips */}
                 <div className="suggestion-chips">
