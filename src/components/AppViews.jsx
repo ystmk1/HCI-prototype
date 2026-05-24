@@ -779,7 +779,6 @@ function NavigationAppMap({ onClose }) {
   const [route, setRoute] = useState(null)          // OSRM result { distance, duration, geometry, steps }
   const [routeLoading, setRouteLoading] = useState(false)
   const [routeError, setRouteError] = useState(null)
-  const [navigating, setNavigating] = useState(false)
 
   useEffect(() => {
     if (!KAKAO_JS_KEY) { setStatus('no-key'); return }
@@ -889,19 +888,12 @@ function NavigationAppMap({ onClose }) {
     setDestination(null)
     setRoute(null)
     setRouteError(null)
-    setNavigating(false)
-    setStepIdx(0)
     if (mapRef.current) {
       mapRef.current.setCenter(new window.kakao.maps.LatLng(DEFAULT_CENTER.lat, DEFAULT_CENTER.lng))
       mapRef.current.setLevel(4)
     }
   }
 
-  // Real navigation = the Kakao Maps route page embedded as an iframe inside
-  // the panel ("web within web"). The OSRM polyline + ETA on our own map
-  // serves as the destination preview before the user commits to navigation.
-  const startNavigation = () => { if (destination) setNavigating(true) }
-  const endNavigation = () => setNavigating(false)
 
   return (
     <Shell title="내비게이션" onBack={onClose}>
@@ -945,8 +937,7 @@ function NavigationAppMap({ onClose }) {
           </div>
         )}
 
-        {/* Floating search bar (+ results dropdown) — hidden while navigating */}
-        {!navigating && (
+        {/* Floating search bar (+ results dropdown) */}
         <div style={{ position: 'absolute', top: 14, left: 14, right: 14, zIndex: 5 }}>
           <div style={{
             display: 'flex', alignItems: 'center', gap: 10,
@@ -1017,11 +1008,10 @@ function NavigationAppMap({ onClose }) {
             </div>
           )}
         </div>
-        )}
 
-        {/* Destination card (bottom) — pre-navigation */}
+        {/* Destination card (bottom) — preview only */}
         <AnimatePresence>
-          {destination && !navigating && (
+          {destination && (
             <motion.div
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
@@ -1058,82 +1048,15 @@ function NavigationAppMap({ onClose }) {
                   경로를 계산하지 못했어요 ({routeError}) — 직선 거리만 표시됩니다.
                 </div>
               ) : route ? (
-                <div style={{ display: 'flex', gap: 16, marginBottom: 10, fontSize: 14, color: T.sub }}>
+                <div style={{ display: 'flex', gap: 16, fontSize: 14, color: T.sub }}>
                   <span>예상 시간 <b style={{ color: T.text, fontWeight: 700 }}>{formatDuration(route.duration)}</b></span>
                   <span>거리 <b style={{ color: T.text, fontWeight: 700 }}>{formatDistance(route.distance)}</b></span>
                 </div>
               ) : null}
-              <motion.button
-                whileTap={{ scale: 0.97 }}
-                onClick={startNavigation}
-                disabled={!route}
-                style={{
-                  width: '100%', background: T.accent, color: 'white', border: 'none',
-                  borderRadius: 14, padding: '12px 14px', fontSize: 15, fontWeight: 700,
-                  cursor: route ? 'pointer' : 'default',
-                  opacity: route ? 1 : 0.4,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                }}
-              >
-                <NavIcon size={18} /> 길안내 시작
-              </motion.button>
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Embedded Kakao Maps route — full-panel overlay ("web within web") */}
-        <AnimatePresence>
-          {navigating && destination && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.22 }}
-              style={{
-                position: 'absolute', inset: 0, zIndex: 7,
-                background: T.card, borderRadius: 24, overflow: 'hidden',
-                display: 'flex', flexDirection: 'column',
-              }}
-            >
-              {/* Header with back */}
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                padding: '10px 14px', borderBottom: `1px solid ${T.divider}`,
-                background: T.card, flexShrink: 0,
-              }}>
-                <motion.button
-                  whileTap={{ scale: 0.92 }}
-                  onClick={endNavigation}
-                  style={{
-                    background: 'transparent', border: 'none', cursor: 'pointer',
-                    color: T.text, padding: 6, borderRadius: 12,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}
-                ><ChevronLeft size={24} strokeWidth={2.2} /></motion.button>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{
-                    fontSize: 15, fontWeight: 700, color: T.text,
-                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  }}>{destination.name}</div>
-                  <div style={{ fontSize: 11, color: T.faint }}>카카오맵 길안내</div>
-                </div>
-                {route && (
-                  <div style={{
-                    fontSize: 12, fontWeight: 700, color: T.accent,
-                    padding: '4px 10px', background: T.accentSoft, borderRadius: 999,
-                    flexShrink: 0,
-                  }}>{formatDuration(route.duration)} · {formatDistance(route.distance)}</div>
-                )}
-              </div>
-              <iframe
-                title="Kakao Maps route"
-                src={`https://map.kakao.com/link/by/car/${encodeURIComponent(DEFAULT_CENTER.name)},${DEFAULT_CENTER.lat},${DEFAULT_CENTER.lng}/${encodeURIComponent(destination.name)},${destination.lat},${destination.lng}`}
-                style={{ flex: 1, border: 'none', width: '100%' }}
-                referrerPolicy="strict-origin-when-cross-origin"
-              />
-            </motion.div>
-          )}
-        </AnimatePresence>
       </div>
     </Shell>
   )
