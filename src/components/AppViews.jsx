@@ -1442,13 +1442,15 @@ const MUSIC_PLAYLISTS = [
 ]
 
 function MusicApp({ onClose }) {
+  // Static (no-scroll) player view: just the now-playing card, transport
+  // controls (prev / play-pause / next), and a playlist switcher. Volume,
+  // shuffle, repeat, and the "next up" list are intentionally absent —
+  // volume lives in the system-wide HMI, the others were noise for a
+  // driving context.
   const [view, setView] = useState('player') // player | playlists
   const [playlist, setPlaylist] = useState('드라이브 믹스')
   const [trackIdx, setTrackIdx] = useState(0)
   const [playing, setPlaying] = useState(true)
-  const [shuffle, setShuffle] = useState(false)
-  const [repeat, setRepeat] = useState('off') // off | all | one
-  const [vol, setVol] = useState(60)
 
   const queue = [
     { title: 'Drive', artist: 'The Cars', dur: '3:55' },
@@ -1460,8 +1462,6 @@ function MusicApp({ onClose }) {
   const cur = queue[trackIdx]
   const goNext = () => setTrackIdx(i => (i + 1) % queue.length)
   const goPrev = () => setTrackIdx(i => (i - 1 + queue.length) % queue.length)
-  const adjustVol = (d) => setVol(v => Math.max(0, Math.min(100, v + d)))
-  const cycleRepeat = () => setRepeat(r => r === 'off' ? 'all' : r === 'all' ? 'one' : 'off')
 
   /* ── PLAYLIST PICKER ─────────────────────────────────── */
   if (view === 'playlists') {
@@ -1503,22 +1503,22 @@ function MusicApp({ onClose }) {
     )
   }
 
-  /* ── PLAYER VIEW ─────────────────────────────────────── */
-  const repeatIcon = repeat === 'one' ? <Repeat1 size={20} /> : <Repeat size={20} />
-  const repeatLabel = repeat === 'one' ? '한 곡' : repeat === 'all' ? '전체' : '반복'
-
-  const nextUp = queue.filter((_, i) => i !== trackIdx).slice(0, 2)
-
+  /* ── PLAYER VIEW (static, no-scroll) ─────────────────── */
   return (
     <Shell title="음악" onBack={onClose}>
+      {/* Playlist row + switcher */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        marginBottom: 14, gap: 12,
+        gap: 12, marginBottom: 22,
       }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
-          <div style={{ fontSize: 15, color: T.faint, fontWeight: 600, flexShrink: 0, letterSpacing: -0.3 }}>지금 재생</div>
+        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
           <div style={{
-            fontSize: 19, fontWeight: 600, color: T.text, letterSpacing: -0.4,
+            fontSize: 11, color: T.faint, fontWeight: 700,
+            letterSpacing: 1.4, textTransform: 'uppercase',
+          }}>지금 재생</div>
+          <div style={{
+            fontSize: 20, fontWeight: 700, color: T.text, letterSpacing: -0.4,
+            marginTop: 4,
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}>{playlist}</div>
         </div>
@@ -1527,173 +1527,88 @@ function MusicApp({ onClose }) {
           onClick={() => setView('playlists')}
           style={{
             background: T.chipGrad, color: T.sub, border: T.border, cursor: 'pointer',
-            padding: '8px 16px', borderRadius: T.radiusChip,
-            fontSize: 15, fontWeight: 600, letterSpacing: -0.3, flexShrink: 0,
-            display: 'inline-flex', alignItems: 'center', gap: 4,
-            fontFamily: "'Pretendard Variable', 'Pretendard', sans-serif",
+            padding: '10px 16px', borderRadius: T.radiusChip,
+            fontSize: 14, fontWeight: 600, letterSpacing: -0.3, flexShrink: 0,
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            fontFamily: 'inherit',
           }}
-        >변경 →</motion.button>
+        >플레이리스트 변경</motion.button>
       </div>
 
+      {/* Now-playing card */}
       <div style={{
         display: 'flex', flexDirection: 'column', alignItems: 'center',
-        marginBottom: 16,
+        marginBottom: 26,
       }}>
         <div style={{
-          width: 240, height: 240,
+          width: 220, height: 220,
           background: `linear-gradient(135deg, ${T.accentHi} 0%, #8b5cf6 100%)`,
           borderRadius: T.radiusCard, display: 'flex',
           alignItems: 'center', justifyContent: 'center',
-          color: 'white', fontSize: 110, fontWeight: 800,
+          color: 'white', fontSize: 96, fontWeight: 800,
           boxShadow: `0 16px 36px ${T.accentGlow}`,
-          marginBottom: 18,
+          marginBottom: 22,
         }}>♪</div>
         <div style={{
-          fontSize: 26, fontWeight: 600, letterSpacing: -0.7,
-          fontFamily: "'Pretendard Variable', 'Pretendard', sans-serif",
-          color: T.text, textAlign: 'center',
+          fontSize: 28, fontWeight: 700, letterSpacing: -0.8,
+          color: T.text, textAlign: 'center', lineHeight: 1.2,
           maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         }}>{cur.title}</div>
         <div style={{
-          fontSize: 18, color: T.sub, marginTop: 6, fontWeight: 500, letterSpacing: -0.3,
+          fontSize: 17, color: T.sub, marginTop: 6,
+          fontWeight: 500, letterSpacing: -0.3,
         }}>{cur.artist}</div>
       </div>
 
-      <div style={{ height: 5, background: T.divider, borderRadius: 3, marginBottom: 4, position: 'relative' }}>
-        <div style={{ width: '38%', height: '100%', background: T.keyGrad, borderRadius: 3 }} />
-      </div>
-      <div style={{
-        display: 'flex', justifyContent: 'space-between',
-        fontSize: 13, color: T.faint, marginBottom: 12, fontWeight: 600,
-      }}>
-        <span>1:28</span><span>{cur.dur}</span>
+      {/* Progress (static visual context, not interactive) */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{
+          height: 5, background: T.divider, borderRadius: 3, position: 'relative',
+        }}>
+          <div style={{ width: '38%', height: '100%', background: T.keyGrad, borderRadius: 3 }} />
+        </div>
+        <div style={{
+          display: 'flex', justifyContent: 'space-between',
+          fontSize: 12, color: T.faint, marginTop: 6, fontWeight: 600,
+          fontVariantNumeric: 'tabular-nums',
+        }}>
+          <span>1:28</span><span>{cur.dur}</span>
+        </div>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 20, marginBottom: 14 }}>
-        <MusicSmallToggle
-          icon={<Shuffle size={22} />}
-          active={shuffle}
-          onClick={() => setShuffle(s => !s)}
-        />
-        <motion.button whileTap={{ scale: 0.9 }} onClick={goPrev} style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 4, color: T.text }}>
-          <SkipBack size={38} />
-        </motion.button>
+      {/* Transport — prev / play-pause / next */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 36,
+      }}>
+        <motion.button
+          whileTap={{ scale: 0.9 }}
+          onClick={goPrev}
+          style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 6, color: T.text }}
+          aria-label="이전 곡"
+        ><SkipBack size={42} /></motion.button>
         <motion.button
           whileTap={{ scale: 0.92 }}
           onClick={() => setPlaying(p => !p)}
           style={{
-            width: 80, height: 80, borderRadius: '50%', background: T.keyGrad,
+            width: 88, height: 88, borderRadius: '50%', background: T.keyGrad,
             border: 'none', cursor: 'pointer', color: 'white',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             boxShadow: `0 10px 24px ${T.accentGlow}`,
           }}
+          aria-label={playing ? '일시정지' : '재생'}
         >
-          {playing ? <Pause size={36} fill="white" /> : <Play size={36} fill="white" />}
+          {playing
+            ? <Pause size={40} fill="white" />
+            : <Play size={40} fill="white" style={{ marginLeft: 4 }} />}
         </motion.button>
-        <motion.button whileTap={{ scale: 0.9 }} onClick={goNext} style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 4, color: T.text }}>
-          <SkipForward size={38} />
-        </motion.button>
-        <MusicSmallToggle
-          icon={repeatIcon}
-          active={repeat !== 'off'}
-          label={repeat !== 'off' ? repeatLabel : null}
-          onClick={cycleRepeat}
-        />
-      </div>
-
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 12,
-        background: T.card, borderRadius: T.radiusChip, padding: '8px 14px',
-        border: T.border, boxShadow: T.shadow, marginBottom: 14,
-      }}>
         <motion.button
           whileTap={{ scale: 0.9 }}
-          onClick={() => adjustVol(-10)}
-          style={{
-            width: 40, height: 40, borderRadius: '50%',
-            background: T.bg, border: 'none', cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: T.text,
-          }}
-        ><Minus size={22} strokeWidth={2.4} /></motion.button>
-        <div style={{ flex: 1, height: 6, background: T.divider, borderRadius: 3, position: 'relative' }}>
-          <div style={{ width: `${vol}%`, height: '100%', background: T.keyGrad, borderRadius: 3 }} />
-        </div>
-        <motion.button
-          whileTap={{ scale: 0.9 }}
-          onClick={() => adjustVol(10)}
-          style={{
-            width: 40, height: 40, borderRadius: '50%',
-            background: T.bg, border: 'none', cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: T.text,
-          }}
-        ><Plus size={22} strokeWidth={2.4} /></motion.button>
-        <div style={{
-          fontSize: 16, fontWeight: 700, color: T.sub, minWidth: 36,
-          textAlign: 'right', letterSpacing: -0.3,
-        }}>{vol}</div>
+          onClick={goNext}
+          style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 6, color: T.text }}
+          aria-label="다음 곡"
+        ><SkipForward size={42} /></motion.button>
       </div>
-
-      <div style={{
-        fontSize: 14, color: T.faint, fontWeight: 600, marginBottom: 6,
-        paddingLeft: 4, letterSpacing: -0.2,
-        fontFamily: "'Pretendard Variable', 'Pretendard', sans-serif",
-      }}>다음 곡</div>
-      {nextUp.map((t) => {
-        const realIdx = queue.indexOf(t)
-        return (
-          <motion.button
-            whileTap={{ scale: 0.985 }}
-            key={realIdx}
-            onClick={() => { setTrackIdx(realIdx); setPlaying(true) }}
-            style={{
-              width: '100%', padding: '10px 14px', marginBottom: 6,
-              background: T.card, border: T.border, borderRadius: 14,
-              cursor: 'pointer',
-              display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left',
-              fontFamily: "'Pretendard Variable', 'Pretendard', sans-serif",
-            }}
-          >
-            <div style={{
-              width: 36, height: 36, borderRadius: 8,
-              background: `linear-gradient(135deg, ${T.accentHi} 0%, #8b5cf6 100%)`,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: 'white', fontSize: 18, flexShrink: 0,
-            }}>♪</div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{
-                fontSize: 17, fontWeight: 600, color: T.text, letterSpacing: -0.3,
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              }}>{t.title}</div>
-              <div style={{ fontSize: 13, color: T.sub, marginTop: 1 }}>{t.artist}</div>
-            </div>
-            <div style={{ fontSize: 13, color: T.faint, fontWeight: 600 }}>{t.dur}</div>
-          </motion.button>
-        )
-      })}
     </Shell>
-  )
-}
-
-function MusicSmallToggle({ icon, active, label, onClick }) {
-  return (
-    <motion.button
-      whileTap={{ scale: 0.9 }}
-      onClick={onClick}
-      style={{
-        background: active ? T.keyGrad : 'transparent', border: 'none', cursor: 'pointer',
-        padding: active ? '8px 14px' : 6,
-        borderRadius: T.radiusChip,
-        color: active ? 'white' : T.faint,
-        display: 'inline-flex', alignItems: 'center', gap: 6,
-        fontSize: 14, fontWeight: 600, letterSpacing: -0.3,
-        fontFamily: "'Pretendard Variable', 'Pretendard', sans-serif",
-        boxShadow: active ? `0 4px 12px ${T.accentGlow}` : 'none',
-      }}
-    >
-      {icon}{label && <span>{label}</span>}
-    </motion.button>
   )
 }
 
