@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Flame, Snowflake, Mic, MicOff, ExternalLink, X, Wind } from 'lucide-react'
+import { Flame, Snowflake, Mic, MicOff, ExternalLink, X, Wind, Volume, Volume1, Volume2, VolumeX } from 'lucide-react'
 
 // ── Icon imports ────────────────────────────────────────────
 import iconSun from '../assets/icons/Icon-15.svg'
@@ -38,6 +38,15 @@ const TTS_KEY = import.meta.env.VITE_GOOGLE_TTS_API_KEY
 // Delay before reopening the mic after a spoken reply, so the TTS audio has
 // finished and the wake-word recognizer has released the mic.
 const FOLLOWUP_LISTEN_DELAY_MS = 500
+
+// Scenario → "자세히 보기" animation src. Files live in public/animations/
+// so we can reference them by URL without import (no build error if absent —
+// the <video> will just fail at runtime and we fall back to the static image).
+function animationForScenario(scenarioId) {
+  if (scenarioId === 'frustration_roundabout_loop') return '/animations/roundabout.mp4'
+  if (scenarioId === 'anxiety_hydroplaning') return '/animations/hydroplaning.mp4'
+  return null
+}
 
 // In-panel apps the AI can open via the [OPEN_APP:<id>] intent tag. The model
 // emits the canonical English id; aliases are a safety net for stray output.
@@ -144,6 +153,11 @@ function VehicleHMI() {
   const [temperature, setTemperature] = useState(20)
   const [isAutoClimate, setIsAutoClimate] = useState(true)
   const [fanSpeed, setFanSpeed] = useState(2)
+  // System-wide volume — lives at the HMI level (not inside the music app)
+  // so the bar stays visible whatever screen the user is on.
+  const [volume, setVolume] = useState(0.5)
+  const [muted, setMuted] = useState(false)
+  const [volumeOpen, setVolumeOpen] = useState(false) // slider only expands during adjustment
   // Active navigation route confirmed by the user in the Nav app. When set,
   // gemini.js gets its summary in the prompt so the AI can answer trip
   // questions ("얼마나 걸려?") with concrete numbers + scenario delay.
@@ -164,6 +178,9 @@ function VehicleHMI() {
   const temperatureRef = useRef(20)            // mirrors of climate state for the Gemini call
   const fanSpeedRef = useRef(2)
   const fanBoostTimerRef = useRef(null)        // reverts a temporary fan boost
+  const volumeRef = useRef(0.5)
+  const mutedRef = useRef(false)
+  const volumeCloseTimerRef = useRef(null)     // auto-collapses the volume slider
   const activeRouteRef = useRef(null)          // mirror of activeRoute for the Gemini call
 
   // Fit the fixed 1920×1080 screen to the display, preserving aspect ratio.
@@ -282,7 +299,7 @@ function VehicleHMI() {
 
     try {
       const needsCard = effectiveContext !== '' && !hasShownScenarioCard
-      let aiText = await getGeminiResponse(text, effectiveContext, needsCard, speedLevelRef.current, activeScenario?.scenarioId, temperatureRef.current, fanSpeedRef.current, activeRouteRef.current)
+      let aiText = await getGeminiResponse(text, effectiveContext, needsCard, speedLevelRef.current, activeScenario?.scenarioId, temperatureRef.current, fanSpeedRef.current, activeRouteRef.current, volumeRef.current, mutedRef.current)
       setIsAITyping(false)
 
       const aiTimestamp = new Date().toISOString()
@@ -301,8 +318,11 @@ function VehicleHMI() {
       }
 
       let hasCard = false
-      if (aiText.includes('[SHOW_ROUNDABOUT_CARD]')) {
-        aiText = aiText.replace('[SHOW_ROUNDABOUT_CARD]', '').trim()
+      if (/\[SHOW_SITUATION\]/i.test(aiText) || aiText.includes('[SHOW_ROUNDABOUT_CARD]')) {
+        aiText = aiText
+          .replace(/\[SHOW_SITUATION\]/gi, '')
+          .replace(/\[SHOW_ROUNDABOUT_CARD\]/g, '')
+          .trim()
         hasCard = true
         setHasShownScenarioCard(true)
       }
@@ -363,6 +383,29 @@ function VehicleHMI() {
         setFanSpeed(5)
         fanBoostTimerRef.current = setTimeout(() => setFanSpeed(prev), 8000)
         console.log('[climate] fan boost (8s) ← from', prev)
+      }
+
+      // System volume by intent: [VOLUME:0-10] / [MUTE] / [UNMUTE]
+      const volMatch = aiText.match(/\[VOLUME:\s*(\d{1,2})\s*\]/i)
+      if (volMatch) {
+        const v = Math.min(10, Math.max(0, parseInt(volMatch[1], 10)))
+        aiText = aiText.replace(volMatch[0], '').trim()
+        setVolume(v / 10)
+        if (muted && v > 0) setMuted(false)
+        openVolume()
+        console.log('[volume] →', v, '/10')
+      }
+      if (/\[MUTE\]/i.test(aiText)) {
+        aiText = aiText.replace(/\[MUTE\]/i, '').trim()
+        setMuted(true)
+        openVolume()
+        console.log('[volume] muted')
+      }
+      if (/\[UNMUTE\]/i.test(aiText)) {
+        aiText = aiText.replace(/\[UNMUTE\]/i, '').trim()
+        setMuted(false)
+        openVolume()
+        console.log('[volume] unmuted')
       }
 
       const displayText = aiText || '(응답을 받지 못했습니다)'
@@ -448,7 +491,26 @@ function VehicleHMI() {
   // Mirror climate state so the Gemini call always sends the current values.
   useEffect(() => { temperatureRef.current = temperature }, [temperature])
   useEffect(() => { fanSpeedRef.current = fanSpeed }, [fanSpeed])
+  useEffect(() => { volumeRef.current = volume }, [volume])
+  useEffect(() => { mutedRef.current = muted }, [muted])
   useEffect(() => { activeRouteRef.current = activeRoute }, [activeRoute])
+
+  // Briefly expand the volume slider (manual click, bar drag, or AI tag).
+  // Re-extends an auto-collapse timer each time it's called.
+  const openVolume = () => {
+    setVolumeOpen(true)
+    clearTimeout(volumeCloseTimerRef.current)
+    volumeCloseTimerRef.current = setTimeout(() => setVolumeOpen(false), 2500)
+  }
+
+  // 4-step icon (mute → low → mid → full) that mirrors the actual level.
+  const renderVolumeIcon = () => {
+    const v = muted ? 0 : volume
+    if (v === 0) return <VolumeX size={22} />
+    if (v < 0.34) return <Volume size={22} />
+    if (v < 0.67) return <Volume1 size={22} />
+    return <Volume2 size={22} />
+  }
 
   const startListening = () => {
     if (isListeningRef.current) return
@@ -757,15 +819,37 @@ function VehicleHMI() {
                 onDragEnd={(_, info) => {
                   if (info.offset.x > 120 || info.velocity.x > 600) setShowCarStatus(false)
                 }}
-                style={{ width: '100%', height: '100%', cursor: 'grab' }}
+                style={{ width: '100%', height: '100%', cursor: 'grab', position: 'relative' }}
                 whileDrag={{ cursor: 'grabbing' }}
               >
-                <img
-                  src={imgNavigation}
-                  alt="navigation view"
-                  draggable={false}
-                  style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }}
-                />
+                {(() => {
+                  const animSrc = animationForScenario(activeScenario?.scenarioId)
+                  // Animation plays once and auto-closes on ended. If no
+                  // scenario is active we fall through to the static image.
+                  return animSrc ? (
+                    <video
+                      key={animSrc}
+                      src={animSrc}
+                      autoPlay
+                      muted
+                      playsInline
+                      onEnded={() => setShowCarStatus(false)}
+                      onError={() => {
+                        console.warn('[scenario-anim] missing or failed to load:', animSrc)
+                        // Leave the popup open with no content; user can close
+                        // manually (drag or X). Avoid mutating state mid-render.
+                      }}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none', background: '#000' }}
+                    />
+                  ) : (
+                    <img
+                      src={imgNavigation}
+                      alt="navigation view"
+                      draggable={false}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }}
+                    />
+                  )
+                })()}
               </motion.div>
               <motion.button
                 whileTap={{ scale: 0.9 }}
@@ -888,8 +972,50 @@ function VehicleHMI() {
           ))}
         </div>
 
-        {/* Right: Menu */}
+        {/* Right: System Volume + Menu */}
         <div className="bottom-right">
+          <div className="volume-control" title={`볼륨 ${Math.round((muted ? 0 : volume) * 100)}%`}>
+            <motion.div
+              initial={false}
+              animate={{ width: volumeOpen ? 160 : 0, opacity: volumeOpen ? 1 : 0 }}
+              transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
+              style={{ overflow: 'hidden' }}
+            >
+              <div
+                className="volume-bar"
+                role="slider"
+                aria-label="시스템 볼륨"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round((muted ? 0 : volume) * 100)}
+                onClick={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect()
+                  const ratio = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width))
+                  setVolume(ratio)
+                  if (muted && ratio > 0) setMuted(false)
+                  openVolume()
+                }}
+              >
+                <div
+                  className="volume-fill"
+                  style={{ width: `${(muted ? 0 : volume) * 100}%` }}
+                />
+              </div>
+            </motion.div>
+            <motion.button
+              whileTap={{ scale: 0.9 }}
+              className="volume-icon-btn"
+              onClick={() => {
+                if (!volumeOpen) { openVolume(); return }
+                // Already open → second tap toggles mute (and keeps it open).
+                setMuted((m) => !m)
+                openVolume()
+              }}
+              aria-label={volumeOpen ? (muted ? '음소거 해제' : '음소거') : '음량 조절'}
+            >
+              {renderVolumeIcon()}
+            </motion.button>
+          </div>
           <motion.button
             whileTap={{ scale: 0.92 }}
             className="btn-menu"

@@ -79,27 +79,27 @@ function ListItem({ leading, title, subtitle, trailing, onClick }) {
       whileTap={{ scale: 0.985 }}
       onClick={onClick}
       style={{
-        width: '100%', padding: '22px 26px', marginBottom: 14,
+        width: '100%', padding: '18px 20px', marginBottom: 12,
         background: T.card, border: T.border,
-        borderRadius: 24, cursor: onClick ? 'pointer' : 'default',
-        display: 'flex', alignItems: 'center', gap: 18, textAlign: 'left',
-        boxShadow: T.shadow,
+        borderRadius: 22, cursor: onClick ? 'pointer' : 'default',
+        display: 'flex', alignItems: 'center', gap: 16, textAlign: 'left',
+        boxShadow: T.shadow, fontFamily: 'inherit',
       }}
     >
       {leading && <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>{leading}</div>}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{
-          fontSize: 27, fontWeight: 600, color: T.text, letterSpacing: -0.6,
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          fontSize: 22, fontWeight: 700, color: T.text, letterSpacing: -0.5,
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.2,
         }}>{title}</div>
         {subtitle && (
           <div style={{
-            fontSize: 19, color: T.sub, marginTop: 4, fontWeight: 500, letterSpacing: -0.3,
+            fontSize: 15, color: T.sub, marginTop: 4, fontWeight: 500, letterSpacing: -0.2,
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}>{subtitle}</div>
         )}
       </div>
-      {trailing && <div style={{ flexShrink: 0, color: T.sub, fontSize: 20, fontWeight: 600 }}>{trailing}</div>}
+      {trailing && <div style={{ flexShrink: 0, color: T.sub, fontSize: 14, fontWeight: 600 }}>{trailing}</div>}
     </motion.button>
   )
 }
@@ -118,9 +118,8 @@ function Avatar({ initials, color, size = 60 }) {
 function SectionLabel({ children, style }) {
   return (
     <div style={{
-      fontSize: 20, color: T.sub, fontWeight: 600, marginBottom: 12,
-      paddingLeft: 6, letterSpacing: -0.4,
-      fontFamily: "'Pretendard Variable', 'Pretendard', sans-serif",
+      fontSize: 18, color: T.sub, fontWeight: 700, marginBottom: 12,
+      paddingLeft: 4, letterSpacing: -0.3,
       ...style,
     }}>{children}</div>
   )
@@ -1353,13 +1352,13 @@ function PhoneApp({ onClose }) {
         {/* Mid-call controls — mute + speaker (driving context: no add-call) */}
         <div style={{ display: 'flex', gap: 12, marginTop: 32, marginBottom: 28 }}>
           <PhoneControl
-            icon={muted ? <MicOff size={28} /> : <Mic size={28} />}
+            icon={muted ? <MicOff size={24} /> : <Mic size={24} />}
             label={muted ? '음소거 중' : '음소거'}
             active={muted}
             onClick={() => setMuted((m) => !m)}
           />
           <PhoneControl
-            icon={speaker ? <Volume2 size={28} /> : <VolumeX size={28} />}
+            icon={speaker ? <Volume2 size={24} /> : <VolumeX size={24} />}
             label={speaker ? '스피커' : '핸즈프리'}
             active={speaker}
             onClick={() => setSpeaker((s) => !s)}
@@ -1378,7 +1377,7 @@ function PhoneApp({ onClose }) {
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               boxShadow: '0 12px 28px rgba(213, 72, 72, 0.45)',
             }}
-          ><PhoneOff size={42} /></motion.button>
+          ><PhoneOff size={36} /></motion.button>
         </div>
       </Shell>
     )
@@ -1442,7 +1441,7 @@ function PhoneApp({ onClose }) {
                 background: T.accentSoft, color: T.accent,
                 fontSize: 14, fontWeight: 700, letterSpacing: -0.2,
               }}>
-                <PhoneIcon size={14} /> 통화
+                <PhoneIcon size={16} /> 통화
               </div>
             </motion.button>
           ))}
@@ -1454,7 +1453,7 @@ function PhoneApp({ onClose }) {
             leading={<Avatar initials={item.initials} color={item.color} />}
             title={item.name}
             subtitle={`${item.when} · ${item.dir}`}
-            trailing={<PhoneIcon size={26} color={T.accent} />}
+            trailing={<PhoneIcon size={22} color={T.accent} />}
             onClick={() => setCalling(item)}
           />
         ))
@@ -1766,22 +1765,20 @@ function MailApp({ onClose }) {
     return (
       <Shell title="메일" onBack={() => setOpenId(null)}>
         <div style={{
-          fontSize: 30, fontWeight: 600, marginBottom: 18, letterSpacing: -0.8, lineHeight: 1.25,
-          fontFamily: "'Pretendard Variable', 'Pretendard', sans-serif",
+          fontSize: 30, fontWeight: 700, marginBottom: 18, letterSpacing: -0.8, lineHeight: 1.25,
         }}>{open.subject}</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24 }}>
           <Avatar initials={open.from[0]} color="#6366f1" />
-          <div>
-            <div style={{ fontSize: 22, fontWeight: 600, letterSpacing: -0.4 }}>{open.from}</div>
-            <div style={{ fontSize: 17, color: T.faint, marginTop: 2 }}>{open.time}</div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 20, fontWeight: 700, color: T.text, letterSpacing: -0.4 }}>{open.from}</div>
+            <div style={{ fontSize: 14, color: T.faint, marginTop: 2, fontWeight: 600 }}>{open.time}</div>
           </div>
         </div>
         <div style={{
-          background: T.card, borderRadius: T.radiusCard, padding: 26,
+          background: T.card, borderRadius: T.radiusCard, padding: 22,
           border: T.border, boxShadow: T.shadow,
-          fontSize: 22, lineHeight: 1.65, fontWeight: 500, letterSpacing: -0.4,
+          fontSize: 18, lineHeight: 1.6, fontWeight: 500, letterSpacing: -0.3,
           whiteSpace: 'pre-wrap', color: T.text,
-          fontFamily: "'Pretendard Variable', 'Pretendard', sans-serif",
         }}>{open.body}</div>
       </Shell>
     )
@@ -1833,22 +1830,20 @@ function CalendarApp({ onClose }) {
     return (
       <Shell title="일정" onBack={() => setOpenId(null)}>
         <div style={{
-          background: T.card, borderRadius: T.radiusCard, padding: 26,
+          background: T.card, borderRadius: T.radiusCard, padding: 22,
           border: T.border, boxShadow: T.shadow,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 20 }}>
-            <div style={{ width: 14, height: 44, borderRadius: 4, background: open.color }} />
+            <div style={{ width: 8, height: 44, borderRadius: 4, background: open.color }} />
             <div style={{
-              fontSize: 30, fontWeight: 600, letterSpacing: -0.8,
-              fontFamily: "'Pretendard Variable', 'Pretendard', sans-serif",
+              fontSize: 28, fontWeight: 700, letterSpacing: -0.7, lineHeight: 1.2,
             }}>{open.title}</div>
           </div>
-          <Detail icon={<Clock size={24} />} label={open.when} />
-          <Detail icon={<MapPin size={24} />} label={open.where} />
+          <Detail icon={<Clock size={20} />} label={open.when} />
+          <Detail icon={<MapPin size={20} />} label={open.where} />
           <div style={{
             borderTop: `1px solid ${T.divider}`, marginTop: 20, paddingTop: 20,
-            fontSize: 22, lineHeight: 1.6, color: T.text, fontWeight: 500, letterSpacing: -0.4,
-            fontFamily: "'Pretendard Variable', 'Pretendard', sans-serif",
+            fontSize: 18, lineHeight: 1.6, color: T.text, fontWeight: 500, letterSpacing: -0.3,
           }}>{open.notes}</div>
         </div>
       </Shell>
@@ -1860,10 +1855,14 @@ function CalendarApp({ onClose }) {
 
   return (
     <Shell title="일정" onBack={onClose}>
-      <div style={{ marginBottom: 20 }}>
+      <div style={{ marginBottom: 18 }}>
         <div style={{
-          fontSize: 26, fontWeight: 600, letterSpacing: -0.7,
-          fontFamily: "'Pretendard Variable', 'Pretendard', sans-serif",
+          fontSize: 11, color: T.faint, fontWeight: 700,
+          letterSpacing: 1.4, textTransform: 'uppercase',
+        }}>오늘</div>
+        <div style={{
+          fontSize: 24, fontWeight: 700, letterSpacing: -0.6,
+          color: T.text, marginTop: 4, lineHeight: 1.2,
         }}>{ymd}</div>
       </div>
       <SectionLabel>오늘 일정</SectionLabel>
@@ -1893,9 +1892,8 @@ function CalendarApp({ onClose }) {
 function Detail({ icon, label }) {
   return (
     <div style={{
-      display: 'flex', alignItems: 'center', gap: 14,
-      color: T.sub, marginBottom: 12, fontSize: 21, fontWeight: 500, letterSpacing: -0.4,
-      fontFamily: "'Pretendard Variable', 'Pretendard', sans-serif",
+      display: 'flex', alignItems: 'center', gap: 12,
+      color: T.sub, marginBottom: 10, fontSize: 18, fontWeight: 500, letterSpacing: -0.3,
     }}>
       {icon}<span>{label}</span>
     </div>

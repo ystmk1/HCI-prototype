@@ -26,7 +26,19 @@ const OPTIONS_LOGIC = `
 2. 만약 선택지가 제공된 상태에서, 탑승자가 음성이나 타이핑으로 "우회해줘", "우회", "우회하기", "돌아가자" 등 우회를 긍정하는 변용 발언을 하면, 이를 우회로 수락한 것으로 파악하고 "우회 경로로 안내하겠습니다"라고 답변하세요. 이 때 답변 맨 마지막 줄에 반드시 "[SELECTED_OPTION:우회하기]" 태그를 덧붙이세요.
 3. 반대로 "기존 경로 유지", "기존대로", "그대로 가자", "유지해" 등 기존 경로를 유지하겠다는 발언을 하면, "기존 경로를 유지합니다"라고 답변하고, 맨 마지막 줄에 반드시 "[SELECTED_OPTION:기존 경로 유지]" 태그를 덧붙이세요.`
 
-const SCENARIO_CARD_DIRECTIVE = `\n\n[시스템 제어 명령]\n이번 답변의 맨 마지막에는 화면에 UI 카드를 띄우기 위해 반드시 "[SHOW_ROUNDABOUT_CARD]" 라는 텍스트를 정확히 포함해야 합니다.`
+const SCENARIO_CARD_DIRECTIVE = `\n\n[시스템 제어 명령]\n이번 답변의 맨 마지막에는 화면에 상황 안내 카드를 띄우기 위해 반드시 "[SHOW_SITUATION]" 라는 텍스트를 정확히 포함해야 합니다.`
+
+// On-demand scenario behaviors. Triggered by the passenger's questions while
+// a scenario is active. The two tags below trigger UI on the app side:
+//   [SHOW_SITUATION] — chat card with "자세히 보기" button → animation popup
+//   [OPEN_APP:Navigation] — already handled by app-control logic (reuse)
+const SITUATION_BRIEFING_LOGIC = `
+
+[상황 인지형 행동 (시나리오 활성 시에만)]
+아래 '현재 주행 상황'이 활성화되어 있을 때:
+1. 탑승자가 상황 브리핑을 요청하면("지금 상황 어때?", "왜 이래?", "무슨 일이야?", "괜찮은 거야?", "설명해줘"), 1~2문장으로 핵심 상황과 차량의 대처를 짧게 브리핑하고, 응답 맨 마지막 줄에 [SHOW_SITUATION] 태그를 덧붙이세요(탑승자가 '자세히 보기'로 상황 애니메이션을 열 수 있게 함).
+2. 탑승자가 경로/지연 관련 질문을 하면("어디까지 왔어?", "얼마나 남았어?", "왜 늦어져?", "도착 언제야?"), 아래 '현재 안내' 정보를 활용해 "지금 절반 정도 왔는데 [현재 상황] 때문에 [N]분 정도 지연되어 [시각]쯤 도착 예정"이라는 식으로 답하고, 응답 맨 마지막 줄에 [OPEN_APP:Navigation] 태그를 덧붙여 경로 화면을 띄우세요. (N은 '현재 안내'의 시나리오 지체 값을 그대로 사용)
+시나리오가 없으면 위 두 태그를 모두 출력하지 마세요.`
 
 // App control via intent (not keyword matching): the model decides when the
 // user wants to open/close a screen app and emits a structured tag the app
@@ -85,6 +97,19 @@ const CLIMATE_CONTROL_LOGIC = `
 온도·바람을 함께 조절하면 두 태그를 모두 덧붙여도 됩니다. 공조 조절 의도가 없으면 이 태그들을 절대 출력하지 마세요.
 예: "조금 따뜻하게 할게요. [SET_TEMP:24]" · "바람 잠깐 세게 틀게요. [FAN_BOOST]"`
 
+// System volume by intent. 0–10 scale on the prompt side maps cleanly to the
+// app's 0–1 internal value (× 10). The model picks an absolute target so the
+// app doesn't have to translate vague phrases.
+const VOLUME_CONTROL_LOGIC = `
+
+[음량 제어]
+탑승자가 시스템 음량(소리 크기)을 조절하려는 의도를 보이면(예: "볼륨 키워줘", "조금 작게", "조용히", "음소거", "다시 켜줘", "최대로"), 짧게 확인하는 답변과 함께 응답 맨 마지막 줄에 해당 태그를 덧붙이세요. 음량 스케일은 0–10 정수입니다.
+- 절대값: [VOLUME:<0–10 정수>] — 아래 '현재 음량'을 기준으로 의도에 맞는 목표 값을 계산. 일반적인 "키워/줄여"는 ±2 정도, "조금/살짝"은 ±1, "엄청/최대로/너무 크다"는 9–10 또는 1–2 같은 끝값.
+- 음소거: [MUTE]
+- 음소거 해제: [UNMUTE]
+음량 조절 의도가 없으면 이 태그들을 절대 출력하지 마세요.
+예: "볼륨 키울게요. [VOLUME:7]" · "음소거할게요. [MUTE]" · "다시 켤게요. [UNMUTE]"`
+
 const SPEED_INSTRUCTIONS = `
 
 [음성 속도 제어]
@@ -132,7 +157,7 @@ async function callOnce(text, apiKey, customPrompt) {
   return parts.find((p) => p.text)?.text ?? ''
 }
 
-export async function getGeminiResponse(text, context = '', needsScenarioCard = false, currentSpeedLevel = 'normal', scenarioId = null, currentTemp = 20, currentFan = 2, currentRoute = null) {
+export async function getGeminiResponse(text, context = '', needsScenarioCard = false, currentSpeedLevel = 'normal', scenarioId = null, currentTemp = 20, currentFan = 2, currentRoute = null, currentVolume = 0.5, currentMuted = false) {
   if (KEYS.length === 0) {
     throw new Error('API 키가 설정되지 않았습니다 (VITE_GEMINI_API_KEYS)')
   }
@@ -158,7 +183,9 @@ ${OPTIONS_LOGIC}`
   }
 
   finalPrompt += APP_CONTROL_LOGIC
+  if (scenarioContext) finalPrompt += SITUATION_BRIEFING_LOGIC
   finalPrompt += CLIMATE_CONTROL_LOGIC + `\n현재 실내 온도: ${currentTemp}°C · 바람 세기: ${currentFan}/5`
+  finalPrompt += VOLUME_CONTROL_LOGIC + `\n현재 음량: ${Math.round((currentMuted ? 0 : currentVolume) * 10)}/10${currentMuted ? ' (음소거)' : ''}`
   finalPrompt += NAVIGATION_CONTEXT + `\n현재 안내: ${formatNavInfo(currentRoute, scenarioId)}`
   finalPrompt += SPEED_INSTRUCTIONS + `\n현재 음성 속도 레벨: ${currentSpeedLevel}`
 

@@ -400,6 +400,48 @@ body {
   gap: 18px;
 }
 
+/* System-wide volume slider — always visible in the bottom bar */
+.volume-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 4px;
+}
+
+.volume-icon-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border-radius: 12px;
+  transition: color 0.2s;
+}
+
+.volume-icon-btn:hover {
+  color: var(--text-primary);
+}
+
+.volume-bar {
+  width: 160px;          /* fixed reveal width; wrapper clips it when collapsed */
+  height: 8px;
+  background: rgba(140, 144, 168, 0.28);
+  border-radius: 999px;
+  position: relative;
+  cursor: pointer;
+}
+
+.volume-fill {
+  height: 100%;
+  background: #2d7cf1;
+  border-radius: 999px;
+  transition: width 0.15s ease;
+  pointer-events: none;
+}
+
 /* ── Bottom Bar Buttons ─────────────────────────────── */
 .btn-home {
   width: 73px;
