@@ -811,12 +811,13 @@ function NavMetric({ label, value, divider }) {
   )
 }
 
-function NavigationAppMap({ onClose, activeRoute, setActiveRoute }) {
+function NavigationAppMap({ onClose, activeRoute, setActiveRoute, currentLocation }) {
   const mapEl = useRef(null)
   const mapRef = useRef(null)
   const placesRef = useRef(null)
   const destMarkerRef = useRef(null)
   const polylineRef = useRef(null)
+  const currentCircleRef = useRef(null)   // blue "you are here" dot — moves with currentLocation prop
 
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
@@ -834,11 +835,13 @@ function NavigationAppMap({ onClose, activeRoute, setActiveRoute }) {
     loadKakaoSdk(KAKAO_JS_KEY)
       .then((kakao) => {
         if (cancelled || !mapEl.current) return
-        const center = new kakao.maps.LatLng(DEFAULT_CENTER.lat, DEFAULT_CENTER.lng)
+        const start = currentLocation ?? DEFAULT_CENTER
+        const center = new kakao.maps.LatLng(start.lat, start.lng)
         const map = new kakao.maps.Map(mapEl.current, { center, level: 4 })
         mapRef.current = map
-        // Current-location indicator (blue dot).
-        new kakao.maps.Circle({
+        // Current-location indicator (blue dot) — kept in a ref so prop
+        // changes can reposition it without rebuilding the map.
+        currentCircleRef.current = new kakao.maps.Circle({
           center, radius: 32,
           strokeWeight: 4, strokeColor: '#2d7cf1', strokeOpacity: 0.95,
           fillColor: '#2d7cf1', fillOpacity: 0.35, map,
@@ -849,6 +852,17 @@ function NavigationAppMap({ onClose, activeRoute, setActiveRoute }) {
       .catch((e) => { if (!cancelled) setStatus(`error: ${e.message || 'load failed'}`) })
     return () => { cancelled = true }
   }, [])
+
+  // Move the "you are here" dot whenever the parent passes a new
+  // currentLocation (hydroplaning steps through fixed points as the
+  // passenger asks for their position).
+  useEffect(() => {
+    if (status !== 'ready' || !currentLocation || !window.kakao) return
+    const ll = new window.kakao.maps.LatLng(currentLocation.lat, currentLocation.lng)
+    currentCircleRef.current?.setPosition(ll)
+    // Re-center only when there's no destination preview taking the bounds.
+    if (!destination && mapRef.current) mapRef.current.setCenter(ll)
+  }, [currentLocation?.lat, currentLocation?.lng, status, destination])
 
   const runSearch = () => {
     if (!placesRef.current || !query.trim()) { setResults([]); return }
@@ -1960,6 +1974,7 @@ export default function AppView({
   id, onClose,
   activeRoute, setActiveRoute,
   callingContact, callState, startCall, endCall,
+  currentLocation,
 }) {
   return (
     <AnimatePresence mode="wait">
@@ -1971,7 +1986,7 @@ export default function AppView({
         transition={{ duration: 0.18 }}
         style={{ width: '100%', height: '100%' }}
       >
-        {id === 'Navigation' && <NavigationAppMap onClose={onClose} activeRoute={activeRoute} setActiveRoute={setActiveRoute} />}
+        {id === 'Navigation' && <NavigationAppMap onClose={onClose} activeRoute={activeRoute} setActiveRoute={setActiveRoute} currentLocation={currentLocation} />}
         {id === 'Phone' && <PhoneApp onClose={onClose} callingContact={callingContact} callState={callState} startCall={startCall} endCall={endCall} />}
         {id === 'Music' && <MusicApp onClose={onClose} />}
         {id === 'Mail' && <MailApp onClose={onClose} />}

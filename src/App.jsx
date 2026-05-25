@@ -36,9 +36,32 @@ import OperatorConsole from './components/OperatorConsole'
 
 const TTS_KEY = import.meta.env.VITE_GOOGLE_TTS_API_KEY
 
-// Delay before reopening the mic after a spoken reply, so the TTS audio has
-// finished and the wake-word recognizer has released the mic.
-const FOLLOWUP_LISTEN_DELAY_MS = 500
+// Conversational follow-up window. We open the mic the moment TTS *starts*
+// playing so a barge-in attempted mid-reply is caught (the browser's AEC
+// usually filters the speaker out), then start a hard countdown the moment
+// TTS *ends* and close the mic when it hits 0.
+const FOLLOWUP_OPEN_DELAY_MS = 150        // tiny pause so TTS audio context is up first
+const FOLLOWUP_WINDOW_S      = 5          // seconds the mic stays open after TTS ends
+
+// Hydroplaning scenario marches the simulated current location through five
+// fixed points as the passenger keeps asking. App.jsx counts the queries and
+// hands the count to gemini.js + the Nav map so the AI's words and the map's
+// blue dot stay in sync.
+const HYDRO_LOCATIONS = [
+  null,                                                                // 0 — pre-trip default
+  { lat: 37.5345, lng: 126.9885, name: '녹사평역 부근' },
+  { lat: 37.5340, lng: 126.9942, name: '이태원역 부근' },
+  { lat: 37.5343, lng: 127.0073, name: '한남대로 폴바셋 근처' },
+  { lat: 37.5165, lng: 127.0203, name: '신사역 근처' },
+]
+const HYDRO_FINAL_LOCATION = { lat: 37.5060, lng: 127.0245, name: '신분당역 부근' } // 5+
+const DEFAULT_CURRENT_LOCATION = { lat: 37.5510, lng: 126.9251, name: '홍익대학교' }
+
+// User text → which scenario intents it matches. App.jsx uses these to keep
+// per-session counters that influence Gemini's response (location step,
+// "앞서 말씀드렸듯이" briefing acknowledgement).
+const LOC_QUERY_RE = /(어디|위치|얼마나|남았|어디까지|진행|현재\s*경로|경로\s*확인|남은)/i
+const BRIEFING_QUERY_RE = /(상황|왜\s*이래|왜\s*늦|무슨\s*일|괜찮|설명|브리핑)/i
 
 // Scenario → "자세히 보기" animation src. Files live in public/animations/
 // so we can reference them by URL without import (no build error if absent —
@@ -168,6 +191,12 @@ function VehicleHMI() {
   // random 1–5 s before flipping to 'connected'.
   const [callingContact, setCallingContact] = useState(null)
   const [callState, setCallState] = useState(null) // 'ringing' | 'connected' | null
+  // Hydroplaning scenario session counters — drive the location step list and
+  // the "앞서 말씀드셨듯이…" briefing acknowledgement. Reset on scenario change.
+  const [hydroState, setHydroState] = useState({ locationCount: 0, briefingCount: 0 })
+  // Seconds remaining in the post-TTS listening window (visible in the voice
+  // input area as "N초 남음"). null = no countdown active.
+  const [followUpCountdown, setFollowUpCountdown] = useState(null)
   const [currentTime, setCurrentTime] = useState(new Date())
   const [activeApp, setActiveApp] = useState(null)
   const [isControlPanelOpen, setIsControlPanelOpen] = useState(false)
@@ -238,6 +267,7 @@ function VehicleHMI() {
   // Reset the roundabout card flag when the scenario switches.
   useEffect(() => {
     setHasShownScenarioCard(false)
+    setHydroState({ locationCount: 0, briefingCount: 0 })
   }, [activeScenario?.scenarioId])
 
   // When a scenario activates, auto-set the navigation route to 강남역 2호선
@@ -318,6 +348,7 @@ function VehicleHMI() {
     setHasShownScenarioCard(false)
     setActiveRoute(null)
     endCall()
+    setHydroState({ locationCount: 0, briefingCount: 0 })
   }, [hmiResetNonce])
 
   const formatTime = (date) =>
@@ -387,12 +418,13 @@ function VehicleHMI() {
   // ── Gemini + TTS ──────────────────────────────────────────
   // turnId / turnStartMs are passed from sendMessage for experiment logging;
   // null when invoked outside a logged turn.
-  const callGemini = async (text, turnId = null, turnStartMs = null) => {
+  const callGemini = async (text, turnId = null, turnStartMs = null, scenarioState = undefined) => {
     setIsAITyping(true)
 
     try {
       const needsCard = effectiveContext !== '' && !hasShownScenarioCard
-      let aiText = await getGeminiResponse(text, effectiveContext, needsCard, speedLevelRef.current, activeScenario?.scenarioId, temperatureRef.current, fanSpeedRef.current, activeRouteRef.current, volumeRef.current, mutedRef.current)
+      const stateForGemini = scenarioState ?? hydroState
+      let aiText = await getGeminiResponse(text, effectiveContext, needsCard, speedLevelRef.current, activeScenario?.scenarioId, temperatureRef.current, fanSpeedRef.current, activeRouteRef.current, volumeRef.current, mutedRef.current, stateForGemini)
       setIsAITyping(false)
 
       const aiTimestamp = new Date().toISOString()
@@ -543,17 +575,19 @@ function VehicleHMI() {
       })
 
       if (displayText && TTS_KEY) {
+        // Open the follow-up mic right as TTS starts (only for voice turns) so
+        // an interrupting "그럼…" or "잠깐" attempted mid-reply is caught.
+        // The fixed-window countdown is started in `.then()` when TTS ends.
+        if (lastInputMethodRef.current === 'voice' && !isListeningRef.current) {
+          setTimeout(() => {
+            if (!isListeningRef.current) startListening()
+          }, FOLLOWUP_OPEN_DELAY_MS)
+        }
         speakText(displayText, TTS_KEY, speakingRateRef.current)
           .then(() => {
             if (turnId) markTtsPlayed(turnId)
-            // Conversational follow-up: after speaking a reply to a voice turn,
-            // reopen the mic briefly so the user can continue without saying the
-            // wake word again. If they stay silent, STT ends and the wake-word
-            // listener resumes on its own.
-            if (lastInputMethodRef.current === 'voice' && !isListeningRef.current) {
-              setTimeout(() => {
-                if (!isListeningRef.current) startListening()
-              }, FOLLOWUP_LISTEN_DELAY_MS)
+            if (lastInputMethodRef.current === 'voice' && isListeningRef.current) {
+              setFollowUpCountdown(FOLLOWUP_WINDOW_S)
             }
           })
           .catch((err) => { if (turnId) markTtsError(turnId, err.message) })
@@ -577,6 +611,24 @@ function VehicleHMI() {
     setMessages((prev) => [...prev, { id: Date.now(), type: 'user', text: trimmed }])
     setInputText('')
 
+    // Hydroplaning session counters — advance the simulated current location
+    // and remember how many briefings we've already given. The freshly
+    // computed value is what the very next Gemini call needs to see, so it's
+    // passed inline alongside the setState (state itself doesn't update in
+    // time for the closure below).
+    let nextHydroState = hydroState
+    if (activeScenario?.scenarioId === 'anxiety_hydroplaning') {
+      const locInc = LOC_QUERY_RE.test(trimmed) ? 1 : 0
+      const briefInc = BRIEFING_QUERY_RE.test(trimmed) ? 1 : 0
+      if (locInc || briefInc) {
+        nextHydroState = {
+          locationCount: hydroState.locationCount + locInc,
+          briefingCount: hydroState.briefingCount + briefInc,
+        }
+        setHydroState(nextHydroState)
+      }
+    }
+
     // Record the user turn (no-op if no trial is active in the operator console).
     const turnStartMs = performance.now()
     const turnId = addPendingTurn({
@@ -585,7 +637,7 @@ function VehicleHMI() {
       inputMethod,
     })
 
-    await callGemini(trimmed, turnId, turnStartMs)
+    await callGemini(trimmed, turnId, turnStartMs, nextHydroState)
   }
 
   // ── Web Speech API (STT) ──────────────────────────────────
@@ -601,6 +653,24 @@ function VehicleHMI() {
   useEffect(() => { volumeRef.current = volume }, [volume])
   useEffect(() => { mutedRef.current = muted }, [muted])
   useEffect(() => { activeRouteRef.current = activeRoute }, [activeRoute])
+
+  // Follow-up countdown — once set (when TTS ends) tick down to 0 every
+  // second and stop the recognizer. Cleared early if the passenger speaks
+  // (recognizer ends → isListening flips false → effect below clears).
+  useEffect(() => {
+    if (followUpCountdown == null) return
+    if (followUpCountdown <= 0) {
+      try { recognitionRef.current?.stop() } catch { /* noop */ }
+      setFollowUpCountdown(null)
+      return
+    }
+    const id = setTimeout(() => setFollowUpCountdown((c) => (c == null ? null : c - 1)), 1000)
+    return () => clearTimeout(id)
+  }, [followUpCountdown])
+
+  useEffect(() => {
+    if (!isListening) setFollowUpCountdown(null)
+  }, [isListening])
 
   // Briefly expand the volume slider (manual click, bar drag, or AI tag).
   // Re-extends an auto-collapse timer each time it's called.
@@ -762,7 +832,14 @@ function VehicleHMI() {
                     {isListening ? (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                         <ListeningWave />
-                        <span className="voice-listening-text">듣는 중...</span>
+                        <span className="voice-listening-text">
+                          듣는 중...
+                          {followUpCountdown != null && (
+                            <span style={{ marginLeft: 10, opacity: 0.7, fontVariantNumeric: 'tabular-nums' }}>
+                              {followUpCountdown}초
+                            </span>
+                          )}
+                        </span>
                       </div>
                     ) : (
                       <input
@@ -881,7 +958,14 @@ function VehicleHMI() {
                             style={{ display: 'flex', alignItems: 'center', gap: 12 }}
                           >
                             <ListeningWave />
-                            <span style={{ fontSize: 32, color: '#4aa8ff', fontWeight: 500, letterSpacing: -1.5 }}>듣는 중...</span>
+                            <span style={{ fontSize: 32, color: '#4aa8ff', fontWeight: 500, letterSpacing: -1.5 }}>
+                              듣는 중...
+                              {followUpCountdown != null && (
+                                <span style={{ fontSize: 22, marginLeft: 12, opacity: 0.7, fontVariantNumeric: 'tabular-nums' }}>
+                                  {followUpCountdown}초
+                                </span>
+                              )}
+                            </span>
                           </motion.div>
                         ) : (
                           <motion.input
@@ -998,6 +1082,13 @@ function VehicleHMI() {
                   callState={callState}
                   startCall={startCall}
                   endCall={endCall}
+                  currentLocation={
+                    activeScenario?.scenarioId === 'anxiety_hydroplaning' && hydroState.locationCount > 0
+                      ? (hydroState.locationCount >= 5
+                          ? HYDRO_FINAL_LOCATION
+                          : HYDRO_LOCATIONS[hydroState.locationCount] ?? DEFAULT_CURRENT_LOCATION)
+                      : DEFAULT_CURRENT_LOCATION
+                  }
                 />
               </div>
             </motion.div>

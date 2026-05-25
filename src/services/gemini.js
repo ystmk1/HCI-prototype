@@ -28,17 +28,58 @@ const OPTIONS_LOGIC = `
 
 const SCENARIO_CARD_DIRECTIVE = `\n\n[시스템 제어 명령]\n이번 답변의 맨 마지막에는 화면에 상황 안내 카드를 띄우기 위해 반드시 "[SHOW_SITUATION]" 라는 텍스트를 정확히 포함해야 합니다.`
 
-// On-demand scenario behaviors. Triggered by the passenger's questions while
-// a scenario is active. The two tags below trigger UI on the app side:
-//   [SHOW_SITUATION] — chat card with "자세히 보기" button → animation popup
-//   [OPEN_APP:Navigation] — already handled by app-control logic (reuse)
-const SITUATION_BRIEFING_LOGIC = `
+// Per-scenario behavior guides for the four suggestion-chip intents and
+// their natural-language variants. App.jsx counts how many times the
+// passenger has asked for current location / situation briefing so we can
+// step the hydroplaning location through five fixed points and acknowledge
+// prior briefings.
+const SCENARIO_GUIDE_ROUNDABOUT = `
 
-[상황 인지형 행동 (시나리오 활성 시에만)]
-아래 '현재 주행 상황'이 활성화되어 있을 때:
-1. 탑승자가 상황 브리핑을 요청하면("지금 상황 어때?", "왜 이래?", "무슨 일이야?", "괜찮은 거야?", "설명해줘"), 1~2문장으로 핵심 상황과 차량의 대처를 짧게 브리핑하고, 응답 맨 마지막 줄에 [SHOW_SITUATION] 태그를 덧붙이세요(탑승자가 '자세히 보기'로 상황 애니메이션을 열 수 있게 함).
-2. 탑승자가 경로/지연 관련 질문을 하면("어디까지 왔어?", "얼마나 남았어?", "왜 늦어져?", "도착 언제야?"), 아래 '현재 안내' 정보를 활용해 "지금 절반 정도 왔는데 [현재 상황] 때문에 [N]분 정도 지연되어 [시각]쯤 도착 예정"이라는 식으로 답하고, 응답 맨 마지막 줄에 [OPEN_APP:Navigation] 태그를 덧붙여 경로 화면을 띄우세요. (N은 '현재 안내'의 시나리오 지체 값을 그대로 사용)
-시나리오가 없으면 위 두 태그를 모두 출력하지 마세요.`
+[회전교차로 시나리오 — 의도별 행동]
+1. 상황 브리핑 ("지금 상황 어때?", "왜 이래?", "무슨 일이야?", "현재 상황 브리핑", "설명해줘") → 1~2문장으로 회전교차로 정체와 차량의 대처를 짧게 브리핑하고, 응답 맨 마지막 줄에 [SHOW_SITUATION] 태그를 덧붙이세요(상황 애니메이션 팝업이 뜸).
+2. 경로 변경 / 우회 요청 ("경로 변경", "다른 길로", "우회 가능?", "다른 경로 추천") → 절대 [SHOW_SITUATION] 태그를 출력하지 마세요. 대신 응답 맨 마지막 줄에 [OPEN_APP:Navigation] 태그를 덧붙여 경로 화면을 띄우고, 본문에는 "현재 회전교차로 정체로 한남대로(또는 강변북로) 우회를 추천드립니다. 변경하시겠습니까?"처럼 구체적 대안 경로와 변경 확인 질문으로 답하세요. [OPTIONS:변경하기|기존 경로 유지] 선택지 태그를 함께 출력해도 좋습니다.
+3. 현재 경로 확인 / 도착 시간 ("어디까지 왔어?", "현재 경로 확인", "얼마나 남았어?", "도착 언제?") → '현재 안내' 정보의 시나리오 지체(5분)를 반영해 "절반쯤 왔는데 회전교차로 정체로 N분 지연되어 [시각]쯤 도착 예정"이라는 식으로 답하고, 응답 맨 마지막 줄에 [OPEN_APP:Navigation] 태그를 덧붙이세요. (절대 [SHOW_SITUATION]은 출력하지 마세요)
+4. 추천 옵션 ("추천 옵션") → [OPTIONS:우회하기|기존 경로 유지] 카드를 띄우고 짧은 안내 한 줄.`
+
+// Hydroplaning is more dynamic: location advances across five fixed points
+// as the passenger keeps asking, and repeat briefings should acknowledge
+// previous ones. The destination is locked to 강남역 2호선 from scenario
+// activation onwards, so anything that hints the trip isn't underway is
+// explicitly forbidden.
+function scenarioGuideHydroplaning(state) {
+  const locStep = Math.max(0, Math.min(5, state?.locationCount ?? 0))
+  const briefCount = state?.briefingCount ?? 0
+  const LOCATION_BY_STEP = {
+    1: '녹사평역 부근입니다.',
+    2: '이태원역 부근입니다.',
+    3: '한남대로 폴바셋 근처입니다. 다만 차량 통행이 많아 그 자리에서 바로 하차는 어렵고, 골목에 정차하려면 10분 정도 더 소요됩니다.',
+    4: '신사역 근처 정체 구간입니다.',
+    5: '신분당역 부근으로 정체 중이지만 곧 강남역 2호선 목적지에 도착합니다.',
+  }
+  const locText = LOCATION_BY_STEP[locStep] || LOCATION_BY_STEP[1]
+  const briefingDirective = briefCount === 0
+    ? '1~2문장으로 빗길 수막현상과 차량의 자동 감속 대처를 짧게 브리핑하고 응답 맨 마지막 줄에 [SHOW_SITUATION] 태그를 덧붙이세요.'
+    : `이미 같은 상황을 ${briefCount}회 브리핑했습니다. "앞서 말씀드렸듯이…" 같은 접두로 이미 설명했음을 인지하고, 새 진행 정보를 1~2문장으로 추가하세요(예: "노면 상황이 개선되어 약 5초 후 다시 가속할 예정입니다", "전방 차량들이 정상 속도를 회복 중이라 곧 정상 주행으로 돌아갑니다"). [SHOW_SITUATION] 태그는 ${briefCount >= 2 ? '이미 충분히 보여줬으므로 생략하세요' : '필요시 한 번 더 출력해도 좋습니다'}.`
+
+  return `
+
+[수막현상 시나리오 — 의도별 행동]
+※ 매우 중요: 시나리오 활성과 동시에 목적지가 '강남역 2호선'으로 자동 설정되어 안내 중입니다. "목적지가 설정되지 않았습니다", "어디로 안내해드릴까요?", "안내해드릴게요" 등 목적지/안내 부재를 암시하거나 새로 안내를 시작하는 듯한 발화는 절대 금지. 모든 답변은 강남역 2호선 안내 중이라는 전제로 하세요.
+
+1. 현재 경로 확인 / 현재 위치 / 잔여 거리 ("어디까지 왔어?", "현재 위치", "얼마나 남았어?", "현재 경로 확인") → 이번이 ${locStep}번째 위치 안내입니다. 정확히 다음 문구로 답하세요: "${locText}" 응답 맨 마지막 줄에 [OPEN_APP:Navigation] 태그를 덧붙여 경로 화면을 띄우세요. [SHOW_SITUATION]은 출력하지 마세요.
+
+2. 추천 옵션 / 다른 경로 ("추천 옵션", "다른 길", "우회 가능?") → 절대 [OPTIONS] 선택지 카드를 출력하지 마세요. 1~2문장으로 "다른 경로도 가능하지만 결과는 비슷합니다. 빗물이 고여 있어 잠시 감속 상태를 유지하는 게 안전합니다." 같은 톤으로 간결히 설명만 하세요.
+
+3. 경로 변경 ("경로 변경", "우회 해줘") → "현재 빗길로 인한 일시적 정체이며 다른 경로도 비슷합니다. 잠시만 기다려 주시면 곧 정상 주행으로 돌아갑니다." 같이 답하고 [OPTIONS] 태그는 절대 출력하지 마세요. 필요시 [OPEN_APP:Navigation] 태그만 덧붙여 경로 화면을 띄울 수 있습니다.
+
+4. 상황 브리핑 / 왜 늦어져? ("지금 상황 어때?", "왜 이래?", "무슨 일이야?", "현재 상황 브리핑", "설명해줘", "왜 늦어져?") → ${briefingDirective}`
+}
+
+function buildScenarioGuide(scenarioId, state) {
+  if (scenarioId === 'frustration_roundabout_loop') return SCENARIO_GUIDE_ROUNDABOUT
+  if (scenarioId === 'anxiety_hydroplaning') return scenarioGuideHydroplaning(state)
+  return ''
+}
 
 // One-shot length override. The base/scenario prompts default to short answers
 // (1–2 sentences); this section lets the passenger override that for a single
@@ -178,7 +219,7 @@ async function callOnce(text, apiKey, customPrompt) {
   return parts.find((p) => p.text)?.text ?? ''
 }
 
-export async function getGeminiResponse(text, context = '', needsScenarioCard = false, currentSpeedLevel = 'normal', scenarioId = null, currentTemp = 20, currentFan = 2, currentRoute = null, currentVolume = 0.5, currentMuted = false) {
+export async function getGeminiResponse(text, context = '', needsScenarioCard = false, currentSpeedLevel = 'normal', scenarioId = null, currentTemp = 20, currentFan = 2, currentRoute = null, currentVolume = 0.5, currentMuted = false, scenarioState = {}) {
   if (KEYS.length === 0) {
     throw new Error('API 키가 설정되지 않았습니다 (VITE_GEMINI_API_KEYS)')
   }
@@ -206,7 +247,7 @@ ${OPTIONS_LOGIC}`
   finalPrompt += APP_CONTROL_LOGIC
   finalPrompt += CALL_LOGIC
   finalPrompt += LENGTH_OVERRIDE_LOGIC
-  if (scenarioContext) finalPrompt += SITUATION_BRIEFING_LOGIC
+  if (scenarioContext) finalPrompt += buildScenarioGuide(scenarioId, scenarioState)
   finalPrompt += CLIMATE_CONTROL_LOGIC + `\n현재 실내 온도: ${currentTemp}°C · 바람 세기: ${currentFan}/5`
   finalPrompt += VOLUME_CONTROL_LOGIC + `\n현재 음량: ${Math.round((currentMuted ? 0 : currentVolume) * 10)}/10${currentMuted ? ' (음소거)' : ''}`
   finalPrompt += NAVIGATION_CONTEXT + `\n현재 안내: ${formatNavInfo(currentRoute, scenarioId)}`
