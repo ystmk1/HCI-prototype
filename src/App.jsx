@@ -28,6 +28,7 @@ import imgNavigation from '../assets/images/navigation.png'
 import { getGeminiResponse } from './services/gemini'
 import { speakText, SPEED_LEVELS, DEFAULT_SPEED_LEVEL } from './services/tts'
 import { useWakeWord } from './hooks/useWakeWord'
+import { findFavorite, adhocContact } from './data/contacts'
 import AppView from './components/AppViews'
 import ControlPanel from './components/ControlPanel'
 import { ExperimentProvider, useExperiment } from './context/ExperimentContext'
@@ -162,6 +163,11 @@ function VehicleHMI() {
   // gemini.js gets its summary in the prompt so the AI can answer trip
   // questions ("얼마나 걸려?") with concrete numbers + scenario delay.
   const [activeRoute, setActiveRoute] = useState(null)
+  // Phone call state lifted up so voice intents ([CALL:name]) can initiate
+  // calls from outside the Phone app. 'ringing' is a transition state of
+  // random 1–5 s before flipping to 'connected'.
+  const [callingContact, setCallingContact] = useState(null)
+  const [callState, setCallState] = useState(null) // 'ringing' | 'connected' | null
   const [currentTime, setCurrentTime] = useState(new Date())
   const [activeApp, setActiveApp] = useState(null)
   const [isControlPanelOpen, setIsControlPanelOpen] = useState(false)
@@ -182,6 +188,25 @@ function VehicleHMI() {
   const mutedRef = useRef(false)
   const volumeCloseTimerRef = useRef(null)     // auto-collapses the volume slider
   const activeRouteRef = useRef(null)          // mirror of activeRoute for the Gemini call
+  const ringingTimerRef = useRef(null)         // ringing → connected transition timer
+
+  // Start a call (used by both UI taps and the [CALL:name] voice intent).
+  // Ringing lasts a random 1–5 seconds before flipping to connected.
+  const startCall = (contact) => {
+    if (!contact) return
+    clearTimeout(ringingTimerRef.current)
+    setCallingContact(contact)
+    setCallState('ringing')
+    const delay = 1000 + Math.floor(Math.random() * 4000)
+    ringingTimerRef.current = setTimeout(() => setCallState('connected'), delay)
+  }
+
+  const endCall = () => {
+    clearTimeout(ringingTimerRef.current)
+    ringingTimerRef.current = null
+    setCallingContact(null)
+    setCallState(null)
+  }
 
   // Fit the fixed 1920×1080 screen to the display, preserving aspect ratio.
   useEffect(() => {
@@ -215,6 +240,73 @@ function VehicleHMI() {
     setHasShownScenarioCard(false)
   }, [activeScenario?.scenarioId])
 
+  // When a scenario activates, auto-set the navigation route to 강남역 2호선
+  // so the experiment trip is already in progress without the participant
+  // needing to search. Only fires when transitioning into a scenario and
+  // when the participant hasn't already confirmed their own route.
+  useEffect(() => {
+    const scenarioId = activeScenario?.scenarioId
+    if (!scenarioId || activeRouteRef.current) return
+    const dest = {
+      name: '강남역 2호선',
+      addr: '서울 강남구 강남대로 396',
+      lat: 37.4979, lng: 127.0276,
+    }
+    const origin = { lat: 37.5510, lng: 126.9251 }   // 홍익대학교 (DEFAULT_CENTER)
+    let cancelled = false
+    ;(async () => {
+      try {
+        const url = `https://router.project-osrm.org/route/v1/driving/${origin.lng},${origin.lat};${dest.lng},${dest.lat}?steps=true&geometries=geojson&overview=full`
+        const res = await fetch(url)
+        if (!res.ok) throw new Error(`OSRM ${res.status}`)
+        const data = await res.json()
+        const r = data.routes?.[0]
+        if (!r) throw new Error('no route')
+        if (cancelled) return
+        const now = new Date()
+        setActiveRoute({
+          destination: dest,
+          durationSec: r.duration,
+          distanceM: r.distance,
+          geometry: r.geometry.coordinates,
+          departureIso: now.toISOString(),
+          baseArrivalIso: new Date(now.getTime() + r.duration * 1000).toISOString(),
+        })
+      } catch (e) {
+        if (cancelled) return
+        console.warn('[auto-route] OSRM failed, using straight-line fallback:', e.message)
+        const now = new Date()
+        const durationSec = 25 * 60   // ~25 min Seoul drive estimate
+        const distanceM = 12000
+        setActiveRoute({
+          destination: dest,
+          durationSec, distanceM,
+          geometry: [[origin.lng, origin.lat], [dest.lng, dest.lat]],
+          departureIso: now.toISOString(),
+          baseArrivalIso: new Date(now.getTime() + durationSec * 1000).toISOString(),
+        })
+      }
+    })()
+    return () => { cancelled = true }
+  }, [activeScenario?.scenarioId])
+
+  // When the participant ends an active route mid-scenario, the AI proactively
+  // asks where to go next, anchoring the conversation at a believable
+  // mid-route landmark (녹사평역 부근).
+  const prevRouteRef = useRef(null)
+  useEffect(() => {
+    const had = !!prevRouteRef.current
+    const has = !!activeRoute
+    prevRouteRef.current = activeRoute
+    if (had && !has && activeScenario?.scenarioId) {
+      const text = '지금 녹사평역 부근인데, 어디로 갈까요?'
+      setMessages((prev) => [...prev, { id: Date.now(), type: 'ai', text }])
+      if (TTS_KEY) {
+        speakText(text, TTS_KEY, speakingRateRef.current).catch(() => {})
+      }
+    }
+  }, [activeRoute, activeScenario?.scenarioId])
+
   // Operator ended the trial / reset → wipe the HMI back to the idle screen.
   useEffect(() => {
     if (hmiResetNonce === 0) return
@@ -225,6 +317,7 @@ function VehicleHMI() {
     setIsControlPanelOpen(false)
     setHasShownScenarioCard(false)
     setActiveRoute(null)
+    endCall()
   }, [hmiResetNonce])
 
   const formatTime = (date) =>
@@ -358,6 +451,20 @@ function VehicleHMI() {
         aiText = aiText.replace(/\[CLOSE_APP\]/i, '').trim()
         setActiveApp(null)
         console.log('[app-control] close')
+      }
+
+      // Voice-triggered call: [CALL:name] — open the Phone app and start
+      // ringing. Favorites match by normalized name; an unknown name lands
+      // as an ad-hoc contact (the AI should have confirmed with the user
+      // before emitting [CALL] for unknowns).
+      const callMatch = aiText.match(/\[CALL:(.*?)\]/i)
+      if (callMatch) {
+        const rawName = callMatch[1].trim()
+        aiText = aiText.replace(callMatch[0], '').trim()
+        const contact = findFavorite(rawName) ?? adhocContact(rawName)
+        setActiveApp('Phone')
+        startCall(contact)
+        console.log('[phone] call →', contact.name)
       }
 
       // Climate control by intent: [SET_TEMP:n] / [FAN:n] / [FAN_BOOST].
@@ -882,7 +989,16 @@ function VehicleHMI() {
               style={{ overflow: 'hidden', flexShrink: 0, borderRadius: 24 }}
             >
               <div className="panel-app" style={{ width: 482, height: '100%', borderRadius: 24, overflow: 'hidden', background: '#f5f5f7' }}>
-                <AppView id={activeApp} onClose={() => setActiveApp(null)} activeRoute={activeRoute} setActiveRoute={setActiveRoute} />
+                <AppView
+                  id={activeApp}
+                  onClose={() => setActiveApp(null)}
+                  activeRoute={activeRoute}
+                  setActiveRoute={setActiveRoute}
+                  callingContact={callingContact}
+                  callState={callState}
+                  startCall={startCall}
+                  endCall={endCall}
+                />
               </div>
             </motion.div>
           )}

@@ -40,6 +40,27 @@ const SITUATION_BRIEFING_LOGIC = `
 2. 탑승자가 경로/지연 관련 질문을 하면("어디까지 왔어?", "얼마나 남았어?", "왜 늦어져?", "도착 언제야?"), 아래 '현재 안내' 정보를 활용해 "지금 절반 정도 왔는데 [현재 상황] 때문에 [N]분 정도 지연되어 [시각]쯤 도착 예정"이라는 식으로 답하고, 응답 맨 마지막 줄에 [OPEN_APP:Navigation] 태그를 덧붙여 경로 화면을 띄우세요. (N은 '현재 안내'의 시나리오 지체 값을 그대로 사용)
 시나리오가 없으면 위 두 태그를 모두 출력하지 마세요.`
 
+// One-shot length override. The base/scenario prompts default to short answers
+// (1–2 sentences); this section lets the passenger override that for a single
+// turn without us tracking any state. The next turn snaps back to short.
+const LENGTH_OVERRIDE_LOGIC = `
+
+[답변 길이 (일회성 오버라이드)]
+평소엔 1~2문장으로 짧게 답하되, 탑승자가 이번 발화에서 "길게 답해줘", "자세히 설명해", "30자 이상으로", "더 자세히", "풀어서 말해줘"처럼 답변 길이를 명시적으로 늘려달라고 요청하면, 이 응답 한 번만 그 요청에 맞춰 더 풍부하게 답하세요(요청한 글자수가 있으면 그 이상, 없으면 3~6문장). 다음 턴부터는 다시 기본 짧은 답변으로 돌아가세요.`
+
+// Phone call by intent. The app parses [CALL:name] to open the Phone app and
+// start ringing. The favorites list is named here so the model knows when to
+// confirm versus call directly — keep this in sync with src/data/contacts.js.
+const CALL_LOGIC = `
+
+[전화 걸기]
+즐겨찾기에 등록된 사람: 엄마 / 김민지 / 박사장님 / 집.
+1. 탑승자가 즐겨찾기에 있는 사람한테 전화 걸어달라고 하면(예: "엄마한테 전화해줘", "박사장님 전화 걸어줘"), "OOO에게 전화 거는 중입니다" 같은 짧은 확인과 함께 응답 맨 마지막 줄에 [CALL:이름] 태그를 덧붙이세요.
+2. 탑승자가 이름을 말하지 않고 "전화해줘", "전화 걸어줘"만 말하면 "누구에게 전화할까요?"라고 되묻고 [CALL] 태그를 출력하지 마세요. 그 다음 턴에 이름만 듣게 되면 1번 규칙으로 처리하세요.
+3. 탑승자가 즐겨찾기에 없는 사람 이름을 말하면(예: "박지성한테 전화해", "이수현한테 걸어줘"), 절대 [CALL] 태그를 바로 출력하지 마세요. 대신 "OOO님에게 전화할까요?"라고 한 번 확인하세요. 사용자가 긍정 응답("네", "응", "맞아", "걸어줘", "그래") 하면 그때 다음 턴에 [CALL:이름] 태그를 출력하세요.
+전화 의도가 없으면 [CALL] 태그를 절대 출력하지 마세요.
+예: "엄마에게 전화 거는 중입니다. [CALL:엄마]"`
+
 // App control via intent (not keyword matching): the model decides when the
 // user wants to open/close a screen app and emits a structured tag the app
 // parses. Kept in code — the parser depends on these exact tags.
@@ -183,6 +204,8 @@ ${OPTIONS_LOGIC}`
   }
 
   finalPrompt += APP_CONTROL_LOGIC
+  finalPrompt += CALL_LOGIC
+  finalPrompt += LENGTH_OVERRIDE_LOGIC
   if (scenarioContext) finalPrompt += SITUATION_BRIEFING_LOGIC
   finalPrompt += CLIMATE_CONTROL_LOGIC + `\n현재 실내 온도: ${currentTemp}°C · 바람 세기: ${currentFan}/5`
   finalPrompt += VOLUME_CONTROL_LOGIC + `\n현재 음량: ${Math.round((currentMuted ? 0 : currentVolume) * 10)}/10${currentMuted ? ' (음소거)' : ''}`

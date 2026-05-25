@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { PHONE_FAVORITES } from '../data/contacts'
 import {
   ChevronLeft, Search, MapPin, Navigation as NavIcon,
   Phone as PhoneIcon, PhoneOff, Star,
@@ -1278,95 +1279,112 @@ function formatCallElapsed(sec) {
   return h > 0 ? `${h}:${pad(mm)}:${pad(s)}` : `${pad(m)}:${pad(s)}`
 }
 
-function PhoneApp({ onClose }) {
+function PhoneApp({ onClose, callingContact, callState, startCall, endCall }) {
   const [tab, setTab] = useState('favorites')
-  const [calling, setCalling] = useState(null)
   const [muted, setMuted] = useState(false)
   const [speaker, setSpeaker] = useState(true)
   const [elapsedSec, setElapsedSec] = useState(0)
 
-  // Tick the call duration once a second while a call is active.
+  // Reset UI-only state when no call is active.
   useEffect(() => {
-    if (!calling) { setElapsedSec(0); return }
+    if (!callingContact) { setMuted(false); setSpeaker(true) }
+  }, [callingContact])
+
+  // Tick the call duration once a second after we reach the 'connected' state.
+  useEffect(() => {
+    if (callState !== 'connected') { setElapsedSec(0); return }
     setElapsedSec(0)
     const id = setInterval(() => setElapsedSec((s) => s + 1), 1000)
     return () => clearInterval(id)
-  }, [calling])
+  }, [callState])
 
-  const endCall = () => { setCalling(null); setMuted(false); setSpeaker(true) }
-
-  // Driving essentials only: a few one-tap contacts + recent callbacks.
-  const favorites = [
-    { id: 1, name: '엄마',     sub: '010-1234-5678', initials: '엄', color: '#f59e0b' },
-    { id: 2, name: '김민지',   sub: 'PM · 회사',      initials: '김', color: '#10b981' },
-    { id: 3, name: '박사장님', sub: '010-9999-0001',  initials: '박', color: '#6366f1' },
-    { id: 4, name: '집',       sub: '02-555-1234',    initials: '집', color: '#0ea5e9' },
-  ]
   const recents = [
-    { id: 11, name: '엄마',          when: '오늘 오전 9:12', dir: '발신',   color: '#f59e0b', initials: '엄' },
-    { id: 12, name: '02-555-0188',   when: '어제 오후 6:40', dir: '부재중', color: '#9ca3af', initials: '?' },
-    { id: 13, name: '이수현',        when: '어제 오후 2:05', dir: '수신',   color: '#ef4444', initials: '이' },
+    { id: 11, name: '엄마',          when: '오늘 오전 9:12', dir: '발신',   color: '#f59e0b', sub: '010-1234-5678' },
+    { id: 12, name: '02-555-0188',   when: '어제 오후 6:40', dir: '부재중', color: '#9ca3af', sub: '02-555-0188' },
+    { id: 13, name: '이수현',        when: '어제 오후 2:05', dir: '수신',   color: '#ef4444', sub: '010-2222-3333' },
   ]
 
-  /* ── IN-CALL VIEW ───────────────────────────────────── */
-  if (calling) {
+  /* ── CALLING VIEW (ringing or connected) ─────────────── */
+  if (callingContact) {
+    const isRinging = callState === 'ringing'
     return (
-      <Shell title="통화" onBack={endCall}>
+      <Shell title={isRinging ? '전화 거는 중' : '통화'} onBack={endCall}>
         <div style={{
           display: 'flex', flexDirection: 'column', alignItems: 'center',
-          paddingTop: 18, paddingBottom: 4,
+          paddingTop: 48, paddingBottom: 4,
         }}>
-          <Avatar initials={calling.initials} color={calling.color} size={148} />
+          {/* Status label with animated indicator */}
           <div style={{
             fontSize: 11, color: T.faint, fontWeight: 700,
-            letterSpacing: 1.6, textTransform: 'uppercase', marginTop: 22,
+            letterSpacing: 1.6, textTransform: 'uppercase',
             display: 'inline-flex', alignItems: 'center', gap: 8,
           }}>
-            <span style={{
-              width: 8, height: 8, borderRadius: '50%', background: T.accent,
-              boxShadow: `0 0 0 4px ${T.accentSoft}`,
-            }} />
-            통화 중
+            {isRinging ? (
+              <motion.span
+                animate={{ opacity: [0.35, 1, 0.35] }}
+                transition={{ duration: 1.4, repeat: Infinity, ease: 'easeInOut' }}
+                style={{
+                  width: 8, height: 8, borderRadius: '50%', background: T.faint,
+                }}
+              />
+            ) : (
+              <span style={{
+                width: 8, height: 8, borderRadius: '50%', background: T.accent,
+                boxShadow: `0 0 0 4px ${T.accentSoft}`,
+              }} />
+            )}
+            {isRinging ? '전화 거는 중…' : '통화 중'}
           </div>
+
+          {/* Name (largest in hierarchy) */}
           <div style={{
-            fontSize: 32, fontWeight: 700, color: T.text,
-            letterSpacing: -0.8, lineHeight: 1.2, marginTop: 8,
+            fontSize: 40, fontWeight: 700, color: T.text,
+            letterSpacing: -1, lineHeight: 1.2, marginTop: 14,
             textAlign: 'center', maxWidth: '100%',
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }}>{calling.name}</div>
-          {calling.sub && (
+          }}>{callingContact.name}</div>
+
+          {/* Phone number (smallest) */}
+          {callingContact.sub && (
             <div style={{
-              fontSize: 14, color: T.sub, marginTop: 4,
-              fontWeight: 500, letterSpacing: -0.2,
-            }}>{calling.sub}</div>
+              fontSize: 13, color: T.faint, marginTop: 6,
+              fontWeight: 500, letterSpacing: -0.1,
+            }}>{callingContact.sub}</div>
           )}
 
-          {/* Live elapsed time */}
-          <div style={{
-            fontSize: 44, fontWeight: 700, color: T.accent,
-            letterSpacing: -1.4, marginTop: 18,
-            fontVariantNumeric: 'tabular-nums', lineHeight: 1,
-          }}>{formatCallElapsed(elapsedSec)}</div>
+          {/* Live elapsed time — only during connected */}
+          {!isRinging && (
+            <div style={{
+              fontSize: 56, fontWeight: 700, color: T.accent,
+              letterSpacing: -2, marginTop: 28,
+              fontVariantNumeric: 'tabular-nums', lineHeight: 1,
+            }}>{formatCallElapsed(elapsedSec)}</div>
+          )}
         </div>
 
-        {/* Mid-call controls — mute + speaker (driving context: no add-call) */}
-        <div style={{ display: 'flex', gap: 12, marginTop: 32, marginBottom: 28 }}>
-          <PhoneControl
-            icon={muted ? <MicOff size={24} /> : <Mic size={24} />}
-            label={muted ? '음소거 중' : '음소거'}
-            active={muted}
-            onClick={() => setMuted((m) => !m)}
-          />
-          <PhoneControl
-            icon={speaker ? <Volume2 size={24} /> : <VolumeX size={24} />}
-            label={speaker ? '스피커' : '핸즈프리'}
-            active={speaker}
-            onClick={() => setSpeaker((s) => !s)}
-          />
-        </div>
+        {/* Mid-call controls — only after connected */}
+        {!isRinging && (
+          <div style={{ display: 'flex', gap: 12, marginTop: 32, marginBottom: 28 }}>
+            <PhoneControl
+              icon={muted ? <MicOff size={24} /> : <Mic size={24} />}
+              label={muted ? '음소거 중' : '음소거'}
+              active={muted}
+              onClick={() => setMuted((m) => !m)}
+            />
+            <PhoneControl
+              icon={speaker ? <Volume2 size={24} /> : <VolumeX size={24} />}
+              label={speaker ? '스피커' : '핸즈프리'}
+              active={speaker}
+              onClick={() => setSpeaker((s) => !s)}
+            />
+          </div>
+        )}
 
         {/* End call */}
-        <div style={{ display: 'flex', justifyContent: 'center' }}>
+        <div style={{
+          display: 'flex', justifyContent: 'center',
+          marginTop: isRinging ? 48 : 0,
+        }}>
           <motion.button
             whileTap={{ scale: 0.92 }}
             onClick={endCall}
@@ -1386,10 +1404,10 @@ function PhoneApp({ onClose }) {
   /* ── LIST VIEW ──────────────────────────────────────── */
   return (
     <Shell title="전화" onBack={onClose}>
-      {/* Segmented tabs — slimmer than before so the cards get more room */}
+      {/* Segmented tabs */}
       <div style={{
         display: 'flex', background: T.chipGrad, borderRadius: T.radiusChip,
-        padding: 6, marginBottom: 20, border: T.border, boxShadow: T.shadow,
+        padding: 6, marginBottom: 16, border: T.border, boxShadow: T.shadow,
       }}>
         {[{ k: 'favorites', label: '즐겨찾기' }, { k: 'recents', label: '최근 통화' }].map((t) => (
           <button
@@ -1410,52 +1428,86 @@ function PhoneApp({ onClose }) {
       </div>
 
       {tab === 'favorites' ? (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          {favorites.map((c) => (
-            <motion.button
-              whileTap={{ scale: 0.96 }}
-              key={c.id}
-              onClick={() => setCalling(c)}
-              style={{
-                background: T.card, border: T.border,
-                borderRadius: T.radiusCard, padding: '22px 14px',
-                cursor: 'pointer', boxShadow: T.shadow,
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
-                fontFamily: 'inherit',
-              }}
-            >
-              <Avatar initials={c.initials} color={c.color} size={72} />
+        // Single-column card list — name (largest) → 통화 chip (medium) →
+        // phone number (smallest). A thin colored stripe on the left replaces
+        // the old avatar so each contact still has a glance-able identifier.
+        PHONE_FAVORITES.map((c) => (
+          <motion.button
+            whileTap={{ scale: 0.985 }}
+            key={c.id}
+            onClick={() => startCall(c)}
+            style={{
+              width: '100%', marginBottom: 12,
+              background: T.card, border: T.border, borderRadius: 22,
+              cursor: 'pointer', boxShadow: T.shadow,
+              padding: '16px 18px',
+              display: 'flex', alignItems: 'center', gap: 14,
+              textAlign: 'left', fontFamily: 'inherit',
+              position: 'relative', overflow: 'hidden',
+            }}
+          >
+            {/* Color stripe (replaces avatar) */}
+            <div style={{
+              position: 'absolute', left: 0, top: 0, bottom: 0, width: 5,
+              background: c.color,
+            }} />
+            <div style={{ flex: 1, minWidth: 0, paddingLeft: 6 }}>
+              <div style={{
+                fontSize: 26, fontWeight: 700, color: T.text,
+                letterSpacing: -0.7, lineHeight: 1.2,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>{c.name}</div>
+              <div style={{
+                fontSize: 12, color: T.faint, fontWeight: 500,
+                letterSpacing: -0.1, marginTop: 4,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>{c.sub}</div>
+            </div>
+            <div style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '8px 16px', borderRadius: T.radiusChip,
+              background: T.accentSoft, color: T.accent,
+              fontSize: 16, fontWeight: 700, letterSpacing: -0.2,
+              flexShrink: 0,
+            }}>
+              <PhoneIcon size={16} /> 통화
+            </div>
+          </motion.button>
+        ))
+      ) : (
+        // Recents — same one-column card pattern, no avatar.
+        recents.map((item) => (
+          <motion.button
+            whileTap={{ scale: 0.985 }}
+            key={item.id}
+            onClick={() => startCall(item)}
+            style={{
+              width: '100%', marginBottom: 12,
+              background: T.card, border: T.border, borderRadius: 22,
+              cursor: 'pointer', boxShadow: T.shadow,
+              padding: '16px 18px',
+              display: 'flex', alignItems: 'center', gap: 14,
+              textAlign: 'left', fontFamily: 'inherit',
+              position: 'relative', overflow: 'hidden',
+            }}
+          >
+            <div style={{
+              position: 'absolute', left: 0, top: 0, bottom: 0, width: 5,
+              background: item.color,
+            }} />
+            <div style={{ flex: 1, minWidth: 0, paddingLeft: 6 }}>
               <div style={{
                 fontSize: 22, fontWeight: 700, color: T.text,
                 letterSpacing: -0.5, lineHeight: 1.2,
-              }}>{c.name}</div>
-              <div style={{
-                fontSize: 12, color: T.faint, fontWeight: 600,
-                letterSpacing: -0.2, marginTop: -4,
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                maxWidth: '100%',
-              }}>{c.sub}</div>
+              }}>{item.name}</div>
               <div style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-                padding: '7px 16px', borderRadius: T.radiusChip,
-                background: T.accentSoft, color: T.accent,
-                fontSize: 14, fontWeight: 700, letterSpacing: -0.2,
-              }}>
-                <PhoneIcon size={16} /> 통화
-              </div>
-            </motion.button>
-          ))}
-        </div>
-      ) : (
-        recents.map((item) => (
-          <ListItem
-            key={item.id}
-            leading={<Avatar initials={item.initials} color={item.color} />}
-            title={item.name}
-            subtitle={`${item.when} · ${item.dir}`}
-            trailing={<PhoneIcon size={22} color={T.accent} />}
-            onClick={() => setCalling(item)}
-          />
+                fontSize: 13, color: T.sub, marginTop: 3,
+                fontWeight: 500, letterSpacing: -0.2,
+              }}>{item.when} · {item.dir}</div>
+            </div>
+            <PhoneIcon size={22} color={T.accent} style={{ flexShrink: 0 }} />
+          </motion.button>
         ))
       )}
     </Shell>
@@ -1904,7 +1956,11 @@ function Detail({ icon, label }) {
    Router
    ============================================================ */
 
-export default function AppView({ id, onClose, activeRoute, setActiveRoute }) {
+export default function AppView({
+  id, onClose,
+  activeRoute, setActiveRoute,
+  callingContact, callState, startCall, endCall,
+}) {
   return (
     <AnimatePresence mode="wait">
       <motion.div
@@ -1916,7 +1972,7 @@ export default function AppView({ id, onClose, activeRoute, setActiveRoute }) {
         style={{ width: '100%', height: '100%' }}
       >
         {id === 'Navigation' && <NavigationAppMap onClose={onClose} activeRoute={activeRoute} setActiveRoute={setActiveRoute} />}
-        {id === 'Phone' && <PhoneApp onClose={onClose} />}
+        {id === 'Phone' && <PhoneApp onClose={onClose} callingContact={callingContact} callState={callState} startCall={startCall} endCall={endCall} />}
         {id === 'Music' && <MusicApp onClose={onClose} />}
         {id === 'Mail' && <MailApp onClose={onClose} />}
         {id === 'Calendar' && <CalendarApp onClose={onClose} />}
