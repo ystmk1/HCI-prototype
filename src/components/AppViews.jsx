@@ -1218,14 +1218,14 @@ function NavigationAppMap({ onClose, activeRoute, setActiveRoute, currentLocatio
                   >
                     <path
                       d={svg.d}
-                      stroke={T.accent}
+                      stroke={activeRoute.isAlternative ? '#10b981' : T.accent}
                       strokeWidth={5}
                       fill="none"
                       strokeLinecap="round"
                       strokeLinejoin="round"
                       opacity={0.95}
                     />
-                    <circle cx={svg.start[0]} cy={svg.start[1]} r={9} fill={T.accent} />
+                    <circle cx={svg.start[0]} cy={svg.start[1]} r={9} fill={activeRoute.isAlternative ? '#10b981' : T.accent} />
                     <circle cx={svg.start[0]} cy={svg.start[1]} r={3.5} fill="#ffffff" />
                     <circle cx={svg.end[0]} cy={svg.end[1]} r={11} fill="#e85d5d" />
                     <circle cx={svg.end[0]} cy={svg.end[1]} r={4} fill="#ffffff" />
@@ -1237,12 +1237,33 @@ function NavigationAppMap({ onClose, activeRoute, setActiveRoute, currentLocatio
                   <div style={{
                     fontSize: 11, color: T.faint, fontWeight: 700,
                     letterSpacing: 1.6, textTransform: 'uppercase',
-                  }}>도착 예정</div>
+                    display: 'inline-flex', alignItems: 'center', gap: 8,
+                  }}>
+                    도착 예정
+                    {activeRoute.isAlternative && (
+                      <span style={{
+                        background: 'rgba(16, 185, 129, 0.14)', color: '#10b981',
+                        padding: '2px 8px', borderRadius: 999, fontSize: 10,
+                        letterSpacing: 0.4, fontWeight: 700,
+                      }}>우회 경로</span>
+                    )}
+                  </div>
                   <div style={{
-                    fontSize: 60, fontWeight: 700, color: T.text,
-                    letterSpacing: -2.4, lineHeight: 1, marginTop: 6,
-                    fontVariantNumeric: 'tabular-nums',
-                  }}>{formatClockTime(arr)}</div>
+                    display: 'flex', alignItems: 'baseline', gap: 10,
+                    marginTop: 6,
+                  }}>
+                    <span style={{
+                      fontSize: 60, fontWeight: 700, color: T.text,
+                      letterSpacing: -2.4, lineHeight: 1,
+                      fontVariantNumeric: 'tabular-nums',
+                    }}>{formatClockTime(arr)}</span>
+                    {activeRoute.isAlternative && activeRoute.addedMin > 0 && (
+                      <span style={{
+                        fontSize: 17, fontWeight: 700, color: '#10b981',
+                        letterSpacing: -0.4, fontVariantNumeric: 'tabular-nums',
+                      }}>+{activeRoute.addedMin}분</span>
+                    )}
+                  </div>
                 </div>
 
                 {/* Secondary metrics row */}

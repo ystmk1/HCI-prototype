@@ -499,6 +499,51 @@ function VehicleHMI() {
         console.log('[phone] call →', contact.name)
       }
 
+      // Roundabout scenario — passenger confirmed "변경하기". Pull an OSRM
+      // alternative for the same origin→destination and swap activeRoute
+      // with it (flagged so the nav UI colors the line differently and
+      // surfaces the added time next to the arrival ETA).
+      if (/\[ROUTE_ALTERNATIVE\]/i.test(aiText)) {
+        aiText = aiText.replace(/\[ROUTE_ALTERNATIVE\]/gi, '').trim()
+        const baseRoute = activeRouteRef.current
+        const dest = baseRoute?.destination ?? {
+          name: '강남역 2호선', addr: '서울 강남구 강남대로 396',
+          lat: 37.4979, lng: 127.0276,
+        }
+        const origin = { lat: DEFAULT_CURRENT_LOCATION.lat, lng: DEFAULT_CURRENT_LOCATION.lng }
+        setActiveApp('Navigation')
+        ;(async () => {
+          try {
+            const url = `https://router.project-osrm.org/route/v1/driving/${origin.lng},${origin.lat};${dest.lng},${dest.lat}?alternatives=true&overview=full&geometries=geojson&steps=true`
+            const res = await fetch(url)
+            if (!res.ok) throw new Error(`OSRM ${res.status}`)
+            const data = await res.json()
+            // OSRM returns multiple routes when alternatives=true. Pick the
+            // 2nd (the actual detour); if the demo server only returned one,
+            // pad the duration so the "+N분" still reads as a real detour.
+            const primary = data.routes?.[0]
+            const alt = data.routes?.[1] ?? (primary ? { ...primary, duration: primary.duration + 7 * 60 } : null)
+            if (!alt) throw new Error('no route')
+            const baseDuration = baseRoute?.durationSec ?? primary?.duration ?? alt.duration
+            const addedMin = Math.max(1, Math.round((alt.duration - baseDuration) / 60))
+            const now = new Date()
+            setActiveRoute({
+              destination: dest,
+              durationSec: alt.duration,
+              distanceM: alt.distance,
+              geometry: alt.geometry.coordinates,
+              departureIso: now.toISOString(),
+              baseArrivalIso: new Date(now.getTime() + alt.duration * 1000).toISOString(),
+              isAlternative: true,
+              addedMin,
+            })
+            console.log('[scenario] alternative route applied, +', addedMin, 'min')
+          } catch (e) {
+            console.warn('[scenario] alt route OSRM failed:', e.message)
+          }
+        })()
+      }
+
       // Climate control by intent: [SET_TEMP:n] / [FAN:n] / [FAN_BOOST].
       const setTempMatch = aiText.match(/\[SET_TEMP:\s*(\d{1,2})\s*\]/i)
       if (setTempMatch) {
