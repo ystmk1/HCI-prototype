@@ -20,7 +20,6 @@ import iconMenu from '../assets/icons/Icon-13.svg'
 import voiceIcon from '../assets/icons/voiceicon.svg'
 
 // ── Image imports ───────────────────────────────────────────
-import imgBg40 from '../assets/images/image 40.png'
 import imgCarHigh from '../assets/images/car_high.png'
 import imgNavigation from '../assets/images/navigation.png'
 
@@ -29,6 +28,7 @@ import { getGeminiResponse } from './services/gemini'
 import { speakText, SPEED_LEVELS, DEFAULT_SPEED_LEVEL } from './services/tts'
 import { useWakeWord } from './hooks/useWakeWord'
 import { findFavorite, adhocContact } from './data/contacts'
+import HolographicBg from './components/HolographicBg'
 import AppView from './components/AppViews'
 import ControlPanel from './components/ControlPanel'
 import { ExperimentProvider, useExperiment } from './context/ExperimentContext'
@@ -805,9 +805,9 @@ function VehicleHMI() {
   return (
     <div className="hmi-viewport">
       <div className="screen" ref={screenRef}>
-      {/* ── Rotated Background Image ─────────────────────────── */}
+      {/* ── Animated Holographic Background (WebGL shader) ──── */}
       <div className="bg-rotated-image">
-        <img src={imgBg40} alt="" />
+        <HolographicBg />
       </div>
 
       {/* ── Top Status Bar ───────────────────────────────────── */}
