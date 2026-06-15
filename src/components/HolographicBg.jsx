@@ -82,14 +82,16 @@ const FRAG = `
     vec3 cCyn  = vec3(0.824, 0.933, 0.961);
     vec3 cPale = vec3(0.976, 0.945, 0.988);
 
-    /* Independent breathing on top of the phase-driven scale. */
-    float r0 = (0.62 + 0.06 * sin(t * 0.80))         * sA;
-    float r1 = (0.60 + 0.07 * sin(t * 1.10 + 1.7))   * sA;
-    float r2 = (0.64 + 0.05 * sin(t * 0.90 + 3.0))   * sA;
-    float r3 = (0.61 + 0.06 * sin(t * 1.20 + 2.4))   * sB;
-    float r4 = (0.63 + 0.05 * sin(t * 0.85 + 0.3))   * sB;
-    float r5 = (0.60 + 0.07 * sin(t * 1.05 + 4.0))   * sB;
-    float r6 = (0.65 + 0.06 * sin(t * 0.95 + 2.2))   * sB;
+    /* Smaller orbs + independent breathing — keeps white space visible
+       between blooms so two colors never blanket the whole screen, and
+       the constantly-shifting overlaps read as more dynamic. */
+    float r0 = (0.42 + 0.05 * sin(t * 0.80))         * sA;
+    float r1 = (0.40 + 0.06 * sin(t * 1.10 + 1.7))   * sA;
+    float r2 = (0.44 + 0.05 * sin(t * 0.90 + 3.0))   * sA;
+    float r3 = (0.41 + 0.05 * sin(t * 1.20 + 2.4))   * sB;
+    float r4 = (0.43 + 0.05 * sin(t * 0.85 + 0.3))   * sB;
+    float r5 = (0.40 + 0.06 * sin(t * 1.05 + 4.0))   * sB;
+    float r6 = (0.46 + 0.05 * sin(t * 0.95 + 2.2))   * sB;
 
     /* Weighted influence — Set A gets wA, Set B gets wB. */
     float w0 = orb(uv, a0, r0) * wA;
@@ -105,9 +107,12 @@ const FRAG = `
               + cYel  * w3 + cGrn  * w4 + cCyn  * w5 + cPale * w6)
               / max(wt, 0.001);
 
-    /* White base; color only rises where influence accumulates. */
-    vec3 base  = vec3(1.0, 1.0, 1.0);
-    vec3 final = mix(base, col, smoothstep(0.0, 1.3, wt));
+    /* Off-white base (#FAFAF9) so white space reads as "paper" rather than
+       a hard clip. Smoothstep is biased so accumulated weight has to
+       cross a threshold before color blooms — keeps swathes of #FAFAF9
+       visible between orbs. */
+    vec3 base  = vec3(0.980, 0.980, 0.976); // #FAFAF9
+    vec3 final = mix(base, col, smoothstep(0.10, 1.20, wt));
 
     gl_FragColor = vec4(final, 1.0);
   }
