@@ -1,2 +1,4 @@
 # HCI-prototype
-Prototypes for HCI project 202605
+Prototype for HCI project 202605
+
+Voice interaction version
