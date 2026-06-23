@@ -76,11 +76,13 @@ const FRAG = `
     vec3 cPink = vec3(0.988, 0.886, 0.961);
     vec3 cLav  = vec3(0.902, 0.871, 0.984);
 
-    /* Set B: warm/spring → FEF781 yellow · D6EFC3 green · D2EEF5 cyan · F9F1FC pale */
-    vec3 cYel  = vec3(0.996, 0.969, 0.506);
-    vec3 cGrn  = vec3(0.839, 0.937, 0.765);
-    vec3 cCyn  = vec3(0.824, 0.933, 0.961);
-    vec3 cPale = vec3(0.976, 0.945, 0.988);
+    /* Set B: spring pastels — yellow replaced with a very pale cream
+       (F6EFE0) so warmth is preserved without the saturated yellow
+       overwhelming the rest of the palette. */
+    vec3 cYel  = vec3(0.965, 0.937, 0.878); /* #F6EFE0 — soft cream */
+    vec3 cGrn  = vec3(0.839, 0.937, 0.765); /* #D6EFC3 — pale green */
+    vec3 cCyn  = vec3(0.824, 0.933, 0.961); /* #D2EEF5 — pale cyan */
+    vec3 cPale = vec3(0.976, 0.945, 0.988); /* #F9F1FC — pale lavender */
 
     /* Smaller orbs + independent breathing — keeps white space visible
        between blooms so two colors never blanket the whole screen, and
@@ -103,9 +105,21 @@ const FRAG = `
     float w6 = orb(uv, b3, r6) * wB;
 
     float wt = w0 + w1 + w2 + w3 + w4 + w5 + w6;
-    vec3  col = (cBlue * w0 + cPink * w1 + cLav  * w2
-              + cYel  * w3 + cGrn  * w4 + cCyn  * w5 + cPale * w6)
-              / max(wt, 0.001);
+
+    /* Gamma-corrected (linear-space) weighted mix. Mixing pastels in sRGB
+       space crushes mid-tones — the average of two distinct hues comes out
+       grey/muddy. Converting each to linear, averaging, then converting back
+       preserves perceived brightness, so overlapping pastels read as a
+       brighter blend instead of a dirty mid-grey. */
+    vec3 linMix = (pow(cBlue, vec3(2.2)) * w0
+                 + pow(cPink, vec3(2.2)) * w1
+                 + pow(cLav,  vec3(2.2)) * w2
+                 + pow(cYel,  vec3(2.2)) * w3
+                 + pow(cGrn,  vec3(2.2)) * w4
+                 + pow(cCyn,  vec3(2.2)) * w5
+                 + pow(cPale, vec3(2.2)) * w6)
+                 / max(wt, 0.001);
+    vec3 col = pow(linMix, vec3(1.0 / 2.2));
 
     /* Off-white base (#FAFAF9) so white space reads as "paper" rather than
        a hard clip. Smoothstep is biased so accumulated weight has to

@@ -1,5 +1,6 @@
 import { fetchApprovedExamples } from './promptExamples'
 import { getPrompt, getScenarioContext, PROMPT_KEYS } from './promptConfig'
+import { getPhasePrompt } from '../data/drivePhases'
 
 const MODEL = 'gemini-2.5-flash'
 const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`
@@ -233,7 +234,7 @@ async function callOnce(text, apiKey, customPrompt) {
   return parts.find((p) => p.text)?.text ?? ''
 }
 
-export async function getGeminiResponse(text, context = '', needsScenarioCard = false, currentSpeedLevel = 'normal', scenarioId = null, currentTemp = 20, currentFan = 2, currentRoute = null, currentVolume = 0.5, currentMuted = false, scenarioState = {}) {
+export async function getGeminiResponse(text, context = '', needsScenarioCard = false, currentSpeedLevel = 'normal', scenarioId = null, currentTemp = 20, currentFan = 2, currentRoute = null, currentVolume = 0.5, currentMuted = false, scenarioState = {}, currentPhase = 0) {
   if (KEYS.length === 0) {
     throw new Error('API 키가 설정되지 않았습니다 (VITE_GEMINI_API_KEYS)')
   }
@@ -276,6 +277,16 @@ ${OPTIONS_LOGIC}`
     } catch (e) {
       console.warn('[gemini] few-shot fetch skipped:', e?.message ?? e)
     }
+  }
+
+  // Drive-phase context (per drive.md) — appended LAST so the large static
+  // prefix above is a stable byte-for-byte match across calls and Gemini's
+  // implicit prefix caching can keep it warm. The phase block is the only
+  // chunk that flips per call (one short line). Phase sets differ per
+  // scenario (C1 = 13 phases, C2 = 6), hence the scenarioId argument.
+  const phaseLine = getPhasePrompt(scenarioId, currentPhase)
+  if (phaseLine) {
+    finalPrompt += `\n\n${phaseLine}`
   }
 
   let lastStatus = null

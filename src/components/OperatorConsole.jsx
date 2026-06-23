@@ -5,6 +5,7 @@ import * as sessionLogger from '../services/sessionLogger'
 import { contributeExamples } from '../services/promptExamples'
 import { isSupabaseEnabled } from '../services/supabase'
 import PromptEditor from './PromptEditor'
+import { getPhases, stripMarkers } from '../data/drivePhases'
 
 const FONT = "'Pretendard Variable', 'Pretendard', system-ui, sans-serif"
 
@@ -129,6 +130,7 @@ export default function OperatorConsole() {
     saveStatus,
     nextParticipantId,
     activeScenario,
+    currentPhase,
     startTrial,
     endTrial,
     doFinalSave,
@@ -136,6 +138,7 @@ export default function OperatorConsole() {
     startNewParticipant,
     markExported,
     setScenario,
+    setPhase,
     resetHmi,
     discardSession,
   } = useExperiment()
@@ -466,6 +469,131 @@ export default function OperatorConsole() {
             HMI 화면과 실시간 동기화됩니다. 초기화 시 참가자 화면의 대화가 비워집니다.
           </p>
         </SectionCard>
+
+        {/* ── Drive phase panel ─────────────────────────────────── */}
+        {/* drive.md 시퀀스 — 시나리오마다 페이즈 개수가 다름 (C1=13, C2=6). */}
+        {/* HMI 단축키: Ctrl+→ 다음 페이즈, Ctrl+← 이전 페이즈. */}
+        {(() => {
+          const phases = getPhases(activeScenario?.scenarioId)
+          const total = phases.length
+          const cur = phases[currentPhase - 1]
+          return (
+            <SectionCard title={`주행 시퀀스 (drive.md${activeScenario ? ` · ${activeScenario.scenarioName}` : ''})`}>
+              {/* Current-position banner — large, sequential read */}
+              <div
+                className={`mb-3 p-3 rounded-lg border ${
+                  cur
+                    ? cur.status?.tone === 'warning'
+                      ? 'bg-orange-50 border-orange-200'
+                      : 'bg-blue-50 border-blue-200'
+                    : 'bg-gray-50 border-gray-200'
+                }`}
+              >
+                <div className="flex items-baseline gap-3">
+                  <span className="text-xs uppercase tracking-wider text-gray-500">현재 시퀀스</span>
+                  <span
+                    className={`text-lg font-bold tabular-nums ${
+                      cur ? 'text-gray-900' : 'text-gray-400'
+                    }`}
+                  >
+                    {total
+                      ? `${currentPhase || 0} / ${total}`
+                      : '시나리오 미선택'}
+                  </span>
+                  {cur?.status && (
+                    <span
+                      className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                        cur.status.tone === 'warning'
+                          ? 'bg-orange-200 text-orange-800'
+                          : 'bg-green-200 text-green-800'
+                      }`}
+                    >
+                      {cur.status.tone === 'warning' ? '경고' : '정상'} · {cur.status.text}
+                    </span>
+                  )}
+                </div>
+                {cur && (
+                  <div className="mt-2 text-sm leading-snug text-gray-700">
+                    <div>{stripMarkers(cur.judgment[0])}</div>
+                    <div>{stripMarkers(cur.judgment[1])}</div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 mb-3">
+                <Btn size="sm" variant="ghost" onClick={() => setPhase(0)} disabled={!total}>해제</Btn>
+                <Btn
+                  size="sm" variant="outline"
+                  onClick={() => setPhase(Math.max(0, currentPhase - 1))}
+                  disabled={!total || currentPhase <= 0}
+                  title="이전 페이즈로 (Ctrl+←)"
+                >← 이전</Btn>
+                <Btn
+                  size="sm" variant="accent"
+                  onClick={() => setPhase(Math.min(total, (currentPhase || 0) + 1))}
+                  disabled={!total || currentPhase >= total}
+                  title="다음 페이즈로 (Ctrl+→)"
+                >다음 →</Btn>
+              </div>
+
+              {/* Per-phase list — vertical so each judgment is fully readable.
+                  Active row gets a colored ring; warning phases tint the row. */}
+              <div className="border border-gray-200 rounded-lg overflow-hidden divide-y divide-gray-100">
+                {total === 0 && (
+                  <div className="px-3 py-4 text-xs text-gray-400">
+                    시나리오를 선택하면 페이즈 시퀀스가 표시됩니다.
+                  </div>
+                )}
+                {phases.map((p) => {
+                  const active = currentPhase === p.phase
+                  const warn   = p.status?.tone === 'warning'
+                  return (
+                    <button
+                      key={p.phase}
+                      onClick={() => setPhase(p.phase)}
+                      className={`w-full text-left px-3 py-2 transition-colors flex items-start gap-3 ${
+                        active
+                          ? warn
+                            ? 'bg-orange-100'
+                            : 'bg-blue-100'
+                          : warn
+                            ? 'bg-orange-50/40 hover:bg-orange-50'
+                            : 'bg-white hover:bg-gray-50'
+                      }`}
+                    >
+                      <span
+                        className={`shrink-0 w-7 text-xs font-bold tabular-nums pt-0.5 ${
+                          active ? 'text-gray-900' : 'text-gray-400'
+                        }`}
+                      >
+                        {p.phase}.
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                              warn
+                                ? 'bg-orange-200 text-orange-800'
+                                : 'bg-green-200 text-green-800'
+                            }`}
+                          >
+                            {p.status?.text}
+                          </span>
+                        </div>
+                        <div className="text-xs text-gray-700 leading-snug mt-1">{stripMarkers(p.judgment[0])}</div>
+                        <div className="text-xs text-gray-500 leading-snug">{stripMarkers(p.judgment[1])}</div>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+
+              <p className="text-xs text-gray-400 mt-2">
+                HMI 단축키: <code className="bg-gray-100 px-1 rounded">Ctrl+→</code> 다음 · <code className="bg-gray-100 px-1 rounded">Ctrl+←</code> 이전. 현재 페이즈가 화면 메인 텍스트(타이핑) + 좌상단 알림 + Gemini 프롬프트에 동시에 반영됩니다.
+              </p>
+            </SectionCard>
+          )
+        })()}
 
         {/* ── Prompt editor (persona + scenario context → Supabase, live) ── */}
         <PromptEditor />

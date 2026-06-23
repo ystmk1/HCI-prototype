@@ -12,6 +12,7 @@ export const BC = {
   TURN_CREATED:      'TURN_CREATED',
   TURN_UPDATED:      'TURN_UPDATED',
   SET_SCENARIO:      'SET_SCENARIO',   // operator/HMI set current scenario
+  SET_PHASE:         'SET_PHASE',      // operator/HMI advance drive phase (1..10)
   RESET_HMI:         'RESET_HMI',      // wipe HMI chat/popups back to idle
 }
 
@@ -51,6 +52,10 @@ export function ExperimentProvider({ children }) {
   )
   // Bumped to signal the HMI to wipe its chat/popups back to the idle screen.
   const [hmiResetNonce, setHmiResetNonce] = useState(0)
+  // Current driving phase (1..10 per drive.md, 0 = none/pre-drive). Synced
+  // across windows so the operator console can advance it while the HMI
+  // window reads it from the same source for the Gemini call.
+  const [currentPhase, setCurrentPhase] = useState(0)
 
   // ── Refs (stable across renders, not reactive) ───────────
   const channelRef = useRef(null)
@@ -80,6 +85,7 @@ export function ExperimentProvider({ children }) {
           turnCounterRef.current = 0
           setExperimentPhase('trial_active')
           setSaveStatus({ autosaved: false, finalSaved: false, exported: false })
+          setCurrentPhase(0)
           break
         }
         case BC.END_TRIAL: {
@@ -111,15 +117,25 @@ export function ExperimentProvider({ children }) {
           turnCounterRef.current = 0
           sessionLogger.clearCurrentSession()
           setHmiResetNonce((n) => n + 1)
+          setCurrentPhase(0)
           break
         }
         case BC.SET_SCENARIO: {
           setActiveScenario(payload.scenarioId ? getScenarioById(payload.scenarioId) : null)
+          setCurrentPhase(0)
+          break
+        }
+        case BC.SET_PHASE: {
+          const next = Number.isInteger(payload.phase)
+            ? Math.max(0, Math.min(10, payload.phase))
+            : 0
+          setCurrentPhase(next)
           break
         }
         case BC.RESET_HMI: {
           setActiveScenario(null)
           setHmiResetNonce((n) => n + 1)
+          setCurrentPhase(0)
           break
         }
         case BC.TURN_CREATED: {
@@ -370,6 +386,7 @@ export function ExperimentProvider({ children }) {
   // ── Operator: initialize HMI display ────────────────────
   const initializeHMI = useCallback(() => {
     setActiveScenario(null)
+    setCurrentPhase(0)
     setHmiResetNonce((n) => n + 1)
     broadcast(BC.INITIALIZE_HMI)
   }, [broadcast])
@@ -381,6 +398,7 @@ export function ExperimentProvider({ children }) {
     setCurrentParticipant(null)
     setLiveConversationTurns([])
     setActiveScenario(null)
+    setCurrentPhase(0)
     turnCounterRef.current = 0
     setExperimentPhase('setup')
     setSaveStatus({ autosaved: false, finalSaved: false, exported: false })
@@ -395,7 +413,20 @@ export function ExperimentProvider({ children }) {
   const setScenario = useCallback(
     (scenarioId) => {
       setActiveScenario(scenarioId ? getScenarioById(scenarioId) : null)
+      setCurrentPhase(0)
       broadcast(BC.SET_SCENARIO, { scenarioId: scenarioId ?? null })
+    },
+    [broadcast]
+  )
+
+  // ── Driving-phase control (1..10 per drive.md; 0 = none) ─
+  // Operator advances this via Ctrl+Alt+1..9, Ctrl+Alt+0 (= 10), or the
+  // Operator Console phase panel. Synced across windows.
+  const setPhase = useCallback(
+    (phase) => {
+      const next = Number.isInteger(phase) ? Math.max(0, Math.min(10, phase)) : 0
+      setCurrentPhase(next)
+      broadcast(BC.SET_PHASE, { phase: next })
     },
     [broadcast]
   )
@@ -403,6 +434,7 @@ export function ExperimentProvider({ children }) {
   // ── Reset HMI to idle (mirrors HMI Alt+R) ────────────────
   const resetHmi = useCallback(() => {
     setActiveScenario(null)
+    setCurrentPhase(0)
     setHmiResetNonce((n) => n + 1)
     broadcast(BC.RESET_HMI)
   }, [broadcast])
@@ -528,6 +560,7 @@ export function ExperimentProvider({ children }) {
     saveStatus,
     nextParticipantId,
     hmiResetNonce,
+    currentPhase,
     // Operator functions
     startTrial,
     endTrial,
@@ -537,6 +570,7 @@ export function ExperimentProvider({ children }) {
     initializeHMI,
     markExported,
     setScenario,
+    setPhase,
     resetHmi,
     discardSession,
     // HMI logging functions

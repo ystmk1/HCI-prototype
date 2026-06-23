@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Flame, Snowflake, Mic, MicOff, ExternalLink, X, Wind, Volume, Volume1, Volume2, VolumeX } from 'lucide-react'
+import { Flame, Snowflake, Mic, MicOff, ExternalLink, X, Wind, Volume, Volume1, Volume2, VolumeX, Search } from 'lucide-react'
 
 // ── Icon imports ────────────────────────────────────────────
 import iconSun from '../assets/icons/Icon-15.svg'
@@ -17,7 +17,6 @@ import iconMusic from '../assets/icons/Icon-2.svg'
 import iconMail from '../assets/icons/Icon-1.svg'
 import iconCalendar from '../assets/icons/Icon.svg'
 import iconMenu from '../assets/icons/Icon-13.svg'
-import voiceIcon from '../assets/icons/voiceicon.svg'
 
 // ── Image imports ───────────────────────────────────────────
 import imgCarHigh from '../assets/images/car_high.png'
@@ -28,7 +27,7 @@ import { getGeminiResponse } from './services/gemini'
 import { speakText, SPEED_LEVELS, DEFAULT_SPEED_LEVEL } from './services/tts'
 import { useWakeWord } from './hooks/useWakeWord'
 import { findFavorite, adhocContact } from './data/contacts'
-import HolographicBg from './components/HolographicBg'
+import { getPhase, getPhaseCount, DEFAULT_STATUS, parseBoldSegments, stripMarkers } from './data/drivePhases'
 import AppView from './components/AppViews'
 import ControlPanel from './components/ControlPanel'
 import { ExperimentProvider, useExperiment } from './context/ExperimentContext'
@@ -86,10 +85,10 @@ const resolveAppId = (raw) => {
 }
 
 const SUGGESTIONS = [
+  '현재 상황 브리핑',
   '현재 경로 확인',
   '경로 변경',
   '추천 옵션',
-  '현재 상황 브리핑',
 ]
 
 // ── Sub-components ─────────────────────────────────────────
@@ -166,6 +165,158 @@ function IdleGreeting() {
   )
 }
 
+// Voice-only search bar (Figma 311:7554). No text typing — voice in, voice
+// out. Tap the mic to start listening; the inline label shows the wake-word
+// hint, or live "듣는 중…" with the follow-up countdown when active.
+function VoiceBar({ isListening, followUpCountdown, onMicClick }) {
+  return (
+    <div
+      className="voice-input-area"
+      role="button"
+      tabIndex={0}
+      onClick={onMicClick}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onMicClick() } }}
+      aria-label={isListening ? '듣는 중' : '음성 입력 시작'}
+    >
+      <div className="voice-input-bg" />
+      <div className="voice-input-content">
+        <span
+          className={`voice-btn ${isListening ? 'listening' : ''}`}
+          aria-hidden="true"
+        >
+          <Mic size={32} color="#ffffff" strokeWidth={2.2} />
+        </span>
+        {isListening ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flex: 1 }}>
+            <ListeningWave />
+            <span className="voice-listening-text">
+              듣는 중...
+              {followUpCountdown != null && (
+                <span style={{ marginLeft: 10, opacity: 0.7, fontVariantNumeric: 'tabular-nums' }}>
+                  {followUpCountdown}초
+                </span>
+              )}
+            </span>
+          </div>
+        ) : (
+          <span className="voice-wakeword-hint">'자인아'라고 불러주세요</span>
+        )}
+        <button className="voice-search-icon" aria-label="검색" tabIndex={-1}>
+          <Search size={32} color="#ffffff" strokeWidth={2.2} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// Top-left driving-status pill. Falls back to DEFAULT_STATUS ("정상 주행 중")
+// when no phase is active — the dot/text only flip to a warning tone when a
+// phase explicitly carries `status.tone === 'warning'`.
+function StatusPill({ status }) {
+  const s = status ?? DEFAULT_STATUS
+  return (
+    <motion.div
+      key={s.text}                       // remount on text change → re-fade
+      className={`status-pill ${s.tone === 'warning' ? 'warning' : ''}`}
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, ease: 'easeOut' }}
+    >
+      <span className="status-pill-dot" />
+      <span>{s.text}</span>
+    </motion.div>
+  )
+}
+
+// Per-line typewriter. Reveals each character at ~35ms; the second line only
+// starts after the first finishes. The active line gets a blinking caret via
+// `.judgment-line.typing` so the reader sees where the text is being drawn.
+function useTypedLines(lines, charMs = 35, lineGapMs = 280) {
+  // Parse once per lines change; each line becomes an array of {text, bold}
+  // segments. plainLens holds the rendered (marker-stripped) character count
+  // per line — what the typewriter advances against.
+  const segments = lines.map((l) => parseBoldSegments(l))
+  const plainLens = lines.map((l) => stripMarkers(l).length)
+
+  const [counts, setCounts] = useState(() => lines.map(() => 0))
+  const [activeIdx, setActiveIdx] = useState(0)
+  useEffect(() => {
+    setCounts(lines.map(() => 0))
+    setActiveIdx(0)
+    if (!lines.length) return
+    let cancelled = false
+    let line = 0, ch = 0
+    const tick = () => {
+      if (cancelled) return
+      const target = plainLens[line] ?? 0
+      if (ch < target) {
+        ch++
+        setCounts((prev) => {
+          const next = [...prev]
+          next[line] = ch
+          return next
+        })
+        setTimeout(tick, charMs)
+      } else if (line + 1 < lines.length) {
+        line += 1
+        ch = 0
+        setActiveIdx(line)
+        setTimeout(tick, lineGapMs)
+      } else {
+        setActiveIdx(-1)  // done
+      }
+    }
+    const id = setTimeout(tick, 120)
+    return () => { cancelled = true; clearTimeout(id) }
+  }, [lines.join('|'), charMs, lineGapMs])
+  return { segments, counts, activeIdx }
+}
+
+// Walk parsed segments and return the prefix visible for `revealed` chars.
+function visibleSegments(lineSegments, revealed) {
+  let count = 0
+  const out = []
+  for (const seg of lineSegments) {
+    if (count >= revealed) break
+    const remaining = revealed - count
+    const showLen = Math.min(seg.text.length, remaining)
+    if (showLen > 0) out.push({ text: seg.text.slice(0, showLen), bold: seg.bold })
+    count += seg.text.length
+  }
+  return out
+}
+
+// Hero text when a drive phase is active — scripted judgment messages typed
+// out character-by-character so it reads as "the car is judging in real time"
+// without waiting for the LLM. Gemini stays in the chat lane for follow-up
+// questions; on-screen judgment is always instant.
+function PhaseJudgment({ phaseLines }) {
+  const { segments, counts, activeIdx } = useTypedLines(phaseLines)
+  return (
+    <motion.div
+      className="hero-title"
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, ease: 'easeOut' }}
+    >
+      {phaseLines.map((_, i) => {
+        const visible = visibleSegments(segments[i] ?? [], counts[i] ?? 0)
+        return (
+          <p key={i}>
+            <span className={`judgment-line ${activeIdx === i ? 'typing' : ''}`}>
+              {visible.map((s, j) =>
+                s.bold
+                  ? <strong key={j} className="judgment-strong">{s.text}</strong>
+                  : <span key={j}>{s.text}</span>
+              )}
+            </span>
+          </p>
+        )
+      })}
+    </motion.div>
+  )
+}
+
 // ── Vehicle HMI (participant-facing screen) ────────────────
 
 function VehicleHMI() {
@@ -186,6 +337,10 @@ function VehicleHMI() {
   // gemini.js gets its summary in the prompt so the AI can answer trip
   // questions ("얼마나 걸려?") with concrete numbers + scenario delay.
   const [activeRoute, setActiveRoute] = useState(null)
+  // Current driving speed (km/h) shown in the GNB center. Prototype-static —
+  // the simulator value isn't piped in yet, so 48 matches the Figma reference
+  // (311:7441). Operator/voice can update this later.
+  const [currentSpeed] = useState(48)
   // Phone call state lifted up so voice intents ([CALL:name]) can initiate
   // calls from outside the Phone app. 'ringing' is a transition state of
   // random 1–5 s before flipping to 'connected'.
@@ -217,6 +372,7 @@ function VehicleHMI() {
   const mutedRef = useRef(false)
   const volumeCloseTimerRef = useRef(null)     // auto-collapses the volume slider
   const activeRouteRef = useRef(null)          // mirror of activeRoute for the Gemini call
+  const currentPhaseRef = useRef(0)            // mirror of currentPhase for the Gemini call
   const ringingTimerRef = useRef(null)         // ringing → connected transition timer
 
   // Start a call (used by both UI taps and the [CALL:name] voice intent).
@@ -252,7 +408,9 @@ function VehicleHMI() {
   const {
     activeScenario,
     hmiResetNonce,
+    currentPhase,
     setScenario,
+    setPhase,
     resetHmi,
     addPendingTurn,
     completeTurn,
@@ -410,10 +568,29 @@ function VehicleHMI() {
           })
         }
       }
+
+      // Drive-phase hotkeys (Ctrl + ←/→) — operator steps through the
+      // simulated driving phases as the simulator progresses. Right advances
+      // (clamped to the scenario's last phase), left rewinds (down to 0 = no
+      // active phase). Phase sets differ per scenario (C1=13, C2=6).
+      const ctrlOnly = e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey
+      if (ctrlOnly && (e.code === 'ArrowRight' || e.code === 'ArrowLeft')) {
+        e.preventDefault()
+        const max = getPhaseCount(activeScenario?.scenarioId)
+        if (!max) return                                    // no scenario → nothing to step through
+        const cur = currentPhaseRef.current ?? 0
+        const next = e.code === 'ArrowRight'
+          ? Math.min(max, cur + 1)
+          : Math.max(0, cur - 1)
+        if (next !== cur) {
+          setPhase(next)
+          console.log(`Drive phase → ${next}/${max} (Ctrl+${e.code === 'ArrowRight' ? '→' : '←'})`)
+        }
+      }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [effectiveContext, setScenario, resetHmi])
+  }, [effectiveContext, setScenario, setPhase, resetHmi])
 
   // ── Gemini + TTS ──────────────────────────────────────────
   // turnId / turnStartMs are passed from sendMessage for experiment logging;
@@ -424,7 +601,7 @@ function VehicleHMI() {
     try {
       const needsCard = effectiveContext !== '' && !hasShownScenarioCard
       const stateForGemini = scenarioState ?? hydroState
-      let aiText = await getGeminiResponse(text, effectiveContext, needsCard, speedLevelRef.current, activeScenario?.scenarioId, temperatureRef.current, fanSpeedRef.current, activeRouteRef.current, volumeRef.current, mutedRef.current, stateForGemini)
+      let aiText = await getGeminiResponse(text, effectiveContext, needsCard, speedLevelRef.current, activeScenario?.scenarioId, temperatureRef.current, fanSpeedRef.current, activeRouteRef.current, volumeRef.current, mutedRef.current, stateForGemini, currentPhaseRef.current)
       setIsAITyping(false)
 
       const aiTimestamp = new Date().toISOString()
@@ -698,6 +875,7 @@ function VehicleHMI() {
   useEffect(() => { volumeRef.current = volume }, [volume])
   useEffect(() => { mutedRef.current = muted }, [muted])
   useEffect(() => { activeRouteRef.current = activeRoute }, [activeRoute])
+  useEffect(() => { currentPhaseRef.current = currentPhase }, [currentPhase])
 
   // Follow-up countdown — once set (when TTS ends) tick down to 0 every
   // second and stop the recognizer. Cleared early if the passenger speaks
@@ -805,10 +983,9 @@ function VehicleHMI() {
   return (
     <div className="hmi-viewport">
       <div className="screen" ref={screenRef}>
-      {/* ── Animated Holographic Background (WebGL shader) ──── */}
-      <div className="bg-rotated-image">
-        <HolographicBg />
-      </div>
+      {/* Background is flat #f8f8f8 (matches Figma 311:7551 map slot).
+          The animated WebGL gradient was retired with the voice-focus
+          redesign; HolographicBg.jsx is kept in the tree for reference. */}
 
       {/* ── Top Status Bar ───────────────────────────────────── */}
       <div className="top-bar">
@@ -845,59 +1022,18 @@ function VehicleHMI() {
                 transition={{ duration: 0.4 }}
                 style={{ position: 'absolute', inset: 0 }}
               >
-                {/* Hero Title — random greeting picked per idle-screen mount */}
-                <IdleGreeting />
+                {/* Top-left driving status pill (Figma 311:7554). Glassy
+                    blur over the map area — tone flips per drive phase. */}
+                <StatusPill status={getPhase(activeScenario?.scenarioId, currentPhase)?.status ?? DEFAULT_STATUS} />
 
-                {/* Suggestion Chips */}
-                <div className="suggestion-chips">
-                  {SUGGESTIONS.map((s, i) => (
-                    <motion.button
-                      key={i}
-                      className="suggestion-chip"
-                      initial={{ opacity: 0, y: 12 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.3 + i * 0.08, duration: 0.35, ease: 'easeOut' }}
-                      onClick={() => sendMessage(s)}
-                    >
-                      <span>{s}</span>
-                    </motion.button>
-                  ))}
-                </div>
-
-                {/* Voice / Text Input Area */}
-                <div className="voice-input-area">
-                  <div className="voice-input-bg" />
-                  <div className="voice-input-content">
-                    <button
-                      className={`voice-btn ${isListening ? 'listening' : ''}`}
-                      onClick={handleVoiceMicClick}
-                    >
-                      <img src={voiceIcon} alt="음성 입력" />
-                    </button>
-                    {isListening ? (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                        <ListeningWave />
-                        <span className="voice-listening-text">
-                          듣는 중...
-                          {followUpCountdown != null && (
-                            <span style={{ marginLeft: 10, opacity: 0.7, fontVariantNumeric: 'tabular-nums' }}>
-                              {followUpCountdown}초
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                    ) : (
-                      <input
-                        type="text"
-                        className="voice-text-input"
-                        placeholder="무엇이든 물어보세요"
-                        value={inputText}
-                        onChange={(e) => setInputText(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && sendMessage(inputText)}
-                      />
-                    )}
-                  </div>
-                </div>
+                {/* Voice-only search bar (Figma 311:7554). No text typing —
+                    mic captures voice, the inline label only mirrors the
+                    transcription / listening state. */}
+                <VoiceBar
+                  isListening={isListening}
+                  followUpCountdown={followUpCountdown}
+                  onMicClick={handleVoiceMicClick}
+                />
               </motion.div>
             ) : (
               <motion.div
@@ -930,28 +1066,10 @@ function VehicleHMI() {
                           </div>
                         </div>
                       ) : msg.type === 'ai-card' ? (
-                        <div className="ai-option-card">
-                          <div className="ai-option-title">{msg.text}</div>
-                          <div className="ai-option-actions">
-                            {msg.options?.map((opt, i) => {
-                              const isSelected = msg.selectedOption === opt
-                              const isAnySelected = !!msg.selectedOption
-                              return (
-                                <button
-                                  key={i}
-                                  className={`ai-option-btn ${isSelected ? 'selected' : isAnySelected ? 'dimmed' : ''}`}
-                                  onClick={() => {
-                                    if (!isAnySelected) {
-                                      sendMessage(opt)
-                                    }
-                                  }}
-                                >
-                                  {opt}
-                                </button>
-                              )
-                            })}
-                          </div>
-                        </div>
+                        /* Voice-only mode: option chips removed. The AI's
+                           text still shows as a normal bubble so the user
+                           hears the options and can voice their choice. */
+                        <div className="message-bubble ai">{msg.text}</div>
                       ) : (
                         <>
                           <div className={`message-bubble ${msg.type} ${msg.isConfirmation ? 'confirmation' : ''}`}>
@@ -980,57 +1098,17 @@ function VehicleHMI() {
                   <div ref={messagesEndRef} />
                 </div>
 
-                {/* Chat Input Bar */}
-                <div className="chat-input-bar">
-                  <div className="chat-input-inner">
-                    <motion.button
-                      whileTap={{ scale: 0.88 }}
-                      onClick={handleMicClick}
-                      className="voice-btn"
-                      style={{ width: 'auto', height: 'auto', background: 'transparent' }}
-                    >
-                      <img src={voiceIcon} alt="Mic" style={{ width: 44, height: 44, opacity: isListening ? 1 : 0.4 }} />
-                    </motion.button>
+                {/* Same voice-only bar as the idle screen — kept at the
+                    bottom while the chat scrolls above it. */}
+                <VoiceBar
+                  isListening={isListening}
+                  followUpCountdown={followUpCountdown}
+                  onMicClick={handleMicClick}
+                />
 
-                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', marginLeft: 10 }}>
-                      <AnimatePresence mode="wait">
-                        {isListening ? (
-                          <motion.div
-                            key="wave"
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            style={{ display: 'flex', alignItems: 'center', gap: 12 }}
-                          >
-                            <ListeningWave />
-                            <span style={{ fontSize: 32, color: '#4aa8ff', fontWeight: 500, letterSpacing: -1.5 }}>
-                              듣는 중...
-                              {followUpCountdown != null && (
-                                <span style={{ fontSize: 22, marginLeft: 12, opacity: 0.7, fontVariantNumeric: 'tabular-nums' }}>
-                                  {followUpCountdown}초
-                                </span>
-                              )}
-                            </span>
-                          </motion.div>
-                        ) : (
-                          <motion.input
-                            key="input"
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            type="text"
-                            value={inputText}
-                            onChange={(e) => setInputText(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && sendMessage(inputText)}
-                            placeholder="무엇이든 물어보세요"
-                            className="chat-text-input"
-                          />
-                        )}
-                      </AnimatePresence>
-                    </div>
-
-                  </div>
-                </div>
+                {/* Status pill stays visible during conversation so the
+                    driving alert state never disappears. */}
+                <StatusPill status={getPhase(activeScenario?.scenarioId, currentPhase)?.status ?? DEFAULT_STATUS} />
               </motion.div>
             )}
           </AnimatePresence>
@@ -1194,24 +1272,40 @@ function VehicleHMI() {
             <img src={iconChevronUp} alt="Temp up" />
           </motion.button>
 
-          {/* Fan speed indicator (set by voice intent: 바람 세게/약하게/잠깐) */}
-          <div className="fan-display" title={`바람 세기 ${fanSpeed}/5`}>
-            <Wind size={22} color={fanSpeed >= 4 ? '#4A90D9' : 'var(--text-secondary)'} />
-            <div className="fan-dots">
-              {[1, 2, 3, 4, 5].map((i) => (
-                <span
-                  key={i}
-                  className="fan-dot"
-                  style={{ background: i <= fanSpeed ? '#4A90D9' : 'rgba(140,144,168,0.28)' }}
-                />
-              ))}
-            </div>
-          </div>
-
         </div>
 
-        {/* Center: App Icons */}
+        {/* Center: ETA (minutes-until-arrival) + current speed. The Figma
+            (311:7556) replaced the absolute arrival clock with a "N 분 뒤"
+            countdown and dropped distance in favor of a live km/h readout. */}
         <div className="bottom-center">
+          {(() => {
+            // Provisional: pin 도착 예정 to 10분 뒤 for now (per request)
+            // rather than deriving it from the live route ETA.
+            const remainingMin = 10
+            return (
+              <>
+                {/* 2 lines: label on top, then "N 분 뒤" inline (big number +
+                    smaller "분 뒤" suffix), mirroring the 현재 속도 column. */}
+                <div className="gnb-eta-block">
+                  <span className="gnb-eta-label">도착 예정</span>
+                  <span className="gnb-eta-value">
+                    {remainingMin ?? '—'}<span className="gnb-eta-unit"> 분 뒤</span>
+                  </span>
+                </div>
+                <div className="gnb-eta-block">
+                  <span className="gnb-eta-label">현재 속도</span>
+                  <span className="gnb-eta-value">
+                    {currentSpeed}<span className="gnb-eta-unit"> km/h</span>
+                  </span>
+                </div>
+              </>
+            )
+          })()}
+        </div>
+
+        {/* Right: App icons + Menu (volume / fan are accessible via voice
+            and the Control Panel — hidden from the GNB per the new layout). */}
+        <div className="bottom-right">
           {APP_ICONS.map((item) => (
             <motion.button
               key={item.id}
@@ -1222,56 +1316,11 @@ function VehicleHMI() {
               <img src={item.icon} alt={item.id} />
             </motion.button>
           ))}
-        </div>
-
-        {/* Right: System Volume + Menu */}
-        <div className="bottom-right">
-          <div className="volume-control" title={`볼륨 ${Math.round((muted ? 0 : volume) * 100)}%`}>
-            <motion.div
-              initial={false}
-              animate={{ width: volumeOpen ? 160 : 0, opacity: volumeOpen ? 1 : 0 }}
-              transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
-              style={{ overflow: 'hidden' }}
-            >
-              <div
-                className="volume-bar"
-                role="slider"
-                aria-label="시스템 볼륨"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={Math.round((muted ? 0 : volume) * 100)}
-                onClick={(e) => {
-                  const r = e.currentTarget.getBoundingClientRect()
-                  const ratio = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width))
-                  setVolume(ratio)
-                  if (muted && ratio > 0) setMuted(false)
-                  openVolume()
-                }}
-              >
-                <div
-                  className="volume-fill"
-                  style={{ width: `${(muted ? 0 : volume) * 100}%` }}
-                />
-              </div>
-            </motion.div>
-            <motion.button
-              whileTap={{ scale: 0.9 }}
-              className="volume-icon-btn"
-              onClick={() => {
-                if (!volumeOpen) { openVolume(); return }
-                // Already open → second tap toggles mute (and keeps it open).
-                setMuted((m) => !m)
-                openVolume()
-              }}
-              aria-label={volumeOpen ? (muted ? '음소거 해제' : '음소거') : '음량 조절'}
-            >
-              {renderVolumeIcon()}
-            </motion.button>
-          </div>
           <motion.button
             whileTap={{ scale: 0.92 }}
             className="btn-menu"
             onClick={() => setIsControlPanelOpen(v => !v)}
+            aria-label="메뉴"
           >
             <img src={iconMenu} alt="Menu" />
           </motion.button>

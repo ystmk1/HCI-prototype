@@ -62,7 +62,9 @@ body {
   flex-shrink: 0;
   transform-origin: center center;
   overflow: hidden;
-  background: var(--bg-primary);
+  /* Flat greyscale base (Figma 311:7551). The animated holographic gradient
+     was removed with the voice-focus redesign. */
+  background: #f8f8f8;
   font-family: 'Pretendard Variable', 'Pretendard', sans-serif;
 }
 
@@ -164,34 +166,153 @@ body {
   z-index: 10;
 }
 
-/* ── Hero Title ──────────────────────────────────────── */
+/* ── Status pill (top-left driving status / alert) ──── */
+/* Glassy blur variant — Figma 311:7554. Sits over the map so it stays legible
+   on any underlying color via backdrop-blur + 85% white fill. */
+.status-pill {
+  position: absolute;
+  left: 54px;
+  top: 33px;
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  padding: 15px 29px;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow: 0px 4px 14px rgba(0, 0, 0, 0.08);
+  font-family: 'Pretendard Variable', 'Pretendard', sans-serif;
+  font-size: 24px;
+  font-weight: 500;
+  line-height: 24px;
+  letter-spacing: -0.48px;
+  color: #131417;
+  white-space: nowrap;
+  z-index: 11;
+}
+
+.status-pill-dot {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #21c46a;
+  /* Breathing halo — `box-shadow` animates the colored ring around the dot
+     so the pill reads as "live" / alert-active without distracting motion. */
+  box-shadow: 0 0 0 4px rgba(33, 196, 106, 0.22);
+  animation: status-dot-breath 2.4s ease-in-out infinite;
+}
+
+@keyframes status-dot-breath {
+  0%, 100% {
+    box-shadow: 0 0 0 4px rgba(33, 196, 106, 0.22);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 9px rgba(33, 196, 106, 0.10);
+    transform: scale(1.12);
+  }
+}
+
+/* Warning state — pill background/text stay identical to the Figma normal
+   variant (286:4588). Only the dot recolors so the alert reads as a state
+   change of the indicator, not a re-skin of the pill. */
+.status-pill.warning .status-pill-dot {
+  background: #ef7a3a;
+  box-shadow: 0 0 0 4px rgba(239, 122, 58, 0.22);
+  /* Warning breathes faster with a larger ring expansion so it visually
+     reads as more urgent than the normal idle pulse. */
+  animation: status-dot-breath-warning 1.6s ease-in-out infinite;
+}
+
+@keyframes status-dot-breath-warning {
+  0%, 100% {
+    box-shadow: 0 0 0 4px rgba(239, 122, 58, 0.22);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 11px rgba(239, 122, 58, 0.08);
+    transform: scale(1.18);
+  }
+}
+
+/* ── Hero Title (idle greeting + per-phase judgment) ── */
 .hero-title {
   position: absolute;
   left: 54px;
-  top: 94px;
+  top: 131px;
+  right: 54px;
   z-index: 10;
 }
 
 .hero-title p {
-  font-size: 78px;
+  font-size: 70px;
   font-weight: 500;
-  line-height: 1.4;
-  letter-spacing: -3.12px;
+  line-height: 1.28;
+  letter-spacing: -2.8px;
   color: #5c668d;
   font-family: 'Pretendard Variable', 'Pretendard', sans-serif;
   white-space: nowrap;
   margin: 0;
 }
 
-/* ── Suggestion Chips ───────────────────────────────── */
-.suggestion-chips {
+/* Typed-out judgment line — single caret on whichever line is being typed. */
+.judgment-line {
+  position: relative;
+  display: inline-block;
+  min-height: 1.28em;
+}
+
+/* Bold emphasis inside a judgment line. Matches Figma 286:2120 — same size
+   and color, just Pretendard Bold instead of Medium so key action/figure
+   phrases pop without breaking the typewriter flow. */
+.judgment-strong {
+  font-weight: 700;
+}
+
+.judgment-line.typing::after {
+  content: '';
+  display: inline-block;
+  width: 3px;
+  height: 0.92em;
+  margin-left: 6px;
+  background: #5c668d;
+  vertical-align: -0.12em;
+  animation: judgment-caret 0.9s steps(1) infinite;
+}
+
+@keyframes judgment-caret {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+/* ── Suggestion section (below the search bar) ──────── */
+.suggestion-section {
   position: absolute;
   left: 54px;
-  top: 364px;
+  right: 54px;
+  top: 610px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  z-index: 10;
+}
+
+.suggestion-section-title {
+  font-family: 'Pretendard Variable', 'Pretendard', sans-serif;
+  font-size: 36px;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: -1.44px;
+  color: #525252;
+  margin: 0;
+}
+
+.suggestion-chips {
   display: flex;
   align-items: center;
   gap: 20px;
-  z-index: 10;
 }
 
 .suggestion-chip {
@@ -226,22 +347,28 @@ body {
   font-family: 'Pretendard Variable', 'Pretendard', sans-serif;
 }
 
-/* ── Voice / Text Input Area ────────────────────────── */
+/* ── Voice search bar (Figma 311:7554) ──────────────── */
+/* Voice-only: no typing. Bottom-aligned just above the GNB. */
 .voice-input-area {
   position: absolute;
-  left: 41px;
-  top: 596px;
-  width: calc(100% - 82px);
-  height: 188px;
+  /* Stretch to the parent panel instead of a fixed 1573px width — the panel
+     flexes with the layout, so a hard width pushed the bar off-screen left.
+     Inset insets keep it centered and padded within the panel. */
+  left: 24px;
+  right: 24px;
+  bottom: 90px;
+  height: 112px;
   z-index: 10;
+  cursor: pointer;
 }
 
 .voice-input-bg {
   position: absolute;
   inset: 0;
-  background: var(--bg-white);
-  border-radius: 3000px;
-  box-shadow: inset 0px 4px 4px 0px rgba(0, 0, 0, 0.08);
+  background: #ffffff;
+  border-radius: 300px;
+  border: 1px solid #edeef2;
+  box-shadow: 0px 4px 2px rgba(0, 0, 0, 0.1);
 }
 
 .voice-input-content {
@@ -250,23 +377,31 @@ body {
   height: 100%;
   display: flex;
   align-items: center;
-  padding: 0 48px;
+  padding: 0 38px;
   gap: 24px;
 }
 
 .voice-btn {
-  width: 111px;
-  height: 111px;
+  width: 72px;
+  height: 72px;
   flex-shrink: 0;
   cursor: pointer;
   border: none;
-  background: transparent;
+  /* Dark charcoal circle with a white glyph — matches the trailing search
+     button and the GNB menu button so all three read as the same control
+     family. Color sampled from the Figma button asset (Figma 311:7554). */
+  background: #343434;
+  border-radius: 50%;
   padding: 0;
-  transition: transform 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s ease, background 0.2s ease;
   position: relative;
 }
 
 .voice-btn:hover {
+  background: #454545;
   transform: scale(1.05);
 }
 
@@ -320,19 +455,59 @@ body {
 
 .voice-text-input {
   flex: 1;
-  font-size: 42px;
+  font-size: 32px;
   font-weight: 400;
   line-height: 1.6;
-  letter-spacing: -3.65px;
-  color: var(--text-primary);
+  letter-spacing: -0.64px;
+  color: #131417;
   border: none;
   outline: none;
   background: transparent;
   font-family: 'Pretendard Variable', 'Pretendard', sans-serif;
+  /* Voice-only mode keeps the field non-interactive; styled like a label. */
+  pointer-events: none;
 }
 
 .voice-text-input::placeholder {
-  color: #5c668d;
+  color: #c3c3c3;
+}
+
+/* Static placeholder text used when there's no live transcription yet —
+   imitates the input look but is a plain span (no typing). */
+.voice-wakeword-hint {
+  flex: 1;
+  font-size: 32px;
+  font-weight: 400;
+  line-height: 1.6;
+  letter-spacing: -0.64px;
+  color: #c3c3c3;
+  font-family: 'Pretendard Variable', 'Pretendard', sans-serif;
+  user-select: none;
+}
+
+/* Trailing search button (Figma 311:7554) — dark charcoal pill containing a
+   white magnifier glyph, matching the leading mic dimensions. */
+.voice-search-icon {
+  width: 72px;
+  height: 72px;
+  flex-shrink: 0;
+  border: none;
+  background: #343434;
+  border-radius: 50%;
+  padding: 0;
+  cursor: pointer;
+  transition: transform 0.2s ease, background 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.voice-search-icon:hover {
+  background: #454545;
+}
+
+.voice-search-icon:active {
+  transform: scale(0.94);
 }
 
 .voice-send-btn {
@@ -391,7 +566,42 @@ body {
 .bottom-center {
   display: flex;
   align-items: center;
-  gap: 18px;
+  justify-content: center;
+  gap: 41px;
+  text-align: center;
+}
+
+/* GNB center — 도착 예정 (N 분 뒤) + 현재 속도 (N km/h). Figma 311:7556. */
+.gnb-eta-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-family: 'Pretendard Variable', 'Pretendard', sans-serif;
+  min-width: 142px;
+  line-height: 1.4;
+}
+
+.gnb-eta-label {
+  font-size: 24px;
+  font-weight: 500;
+  letter-spacing: -0.96px;
+  color: #99a1af;
+}
+
+.gnb-eta-value {
+  font-size: 36px;
+  font-weight: 700;
+  letter-spacing: -0.72px;
+  color: #414141;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Inline unit appended to the big number (e.g. " 분 뒤", " km/h"). Same row
+   as the big number — keeps the column visually 2 rows: label + value. */
+.gnb-eta-unit {
+  font-size: 24px;
+  font-weight: 400;
+  letter-spacing: -0.96px;
 }
 
 .bottom-right {
@@ -627,18 +837,25 @@ body {
 }
 
 /* ── Menu Button ────────────────────────────────────── */
+/* Sized to match .app-icon-btn (73px circle) but with the Figma's darker
+   surface color so the menu reads as the trailing affordance in the row. */
 .btn-menu {
-  width: 67px;
-  height: 67px;
-  border-radius: 21px;
+  width: 73px;
+  height: 73px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: none;
-  background: transparent;
+  border: 1px solid var(--divider-tertiary);
+  background: #a0a0a5;
   cursor: pointer;
   padding: 0;
-  transition: transform 0.15s ease;
+  filter: drop-shadow(0px 6px 12px rgba(0, 0, 0, 0.08));
+  transition: transform 0.15s ease, background 0.2s ease;
+}
+
+.btn-menu:hover {
+  background: #8e8e94;
 }
 
 .btn-menu:active {
@@ -648,6 +865,7 @@ body {
 .btn-menu img {
   width: 30px;
   height: 30px;
+  filter: brightness(0) invert(1);   /* render the menu glyph as white */
 }
 
 /* ── Chat Mode (when conversation active) ───────────── */
