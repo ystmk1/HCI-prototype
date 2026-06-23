@@ -210,14 +210,16 @@ function VoiceBar({ isListening, followUpCountdown, onMicClick }) {
 }
 
 // Top-left driving-status pill. Falls back to DEFAULT_STATUS ("정상 주행 중")
-// when no phase is active — the dot/text only flip to a warning tone when a
-// phase explicitly carries `status.tone === 'warning'`.
+// when no phase is active. The indicator dot takes its color from
+// `status.color` (🟢/🔴/🟠/🟡 per sequence.md); `tone` only sets the pulse
+// tempo (warning breathes faster).
 function StatusPill({ status }) {
   const s = status ?? DEFAULT_STATUS
   return (
     <motion.div
       key={s.text}                       // remount on text change → re-fade
       className={`status-pill ${s.tone === 'warning' ? 'warning' : ''}`}
+      style={{ '--dot': s.color ?? '#21C46A' }}
       initial={{ opacity: 0, y: -8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, ease: 'easeOut' }}
@@ -889,7 +891,11 @@ function VehicleHMI() {
     if (!currentPhase || !TTS_KEY) return
     const speech = getPhaseSpeech(activeScenario?.scenarioId, currentPhase)
     if (!speech) return
-    speakText(speech, TTS_KEY, speakingRateRef.current).catch(() => {})
+    // Resolve the `N초` template token to a random 3~5초 each time it's spoken
+    // (e.g. C2-4 "약 N초 후 정상 마찰 상태로 복귀") so the ETA sounds natural
+    // instead of TTS reading the letter "N".
+    const line = speech.replace(/N초/g, `${3 + Math.floor(Math.random() * 3)}초`)
+    speakText(line, TTS_KEY, speakingRateRef.current).catch(() => {})
   }, [currentPhase, activeScenario?.scenarioId])
 
   // Follow-up countdown — once set (when TTS ends) tick down to 0 every

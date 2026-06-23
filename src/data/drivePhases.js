@@ -15,11 +15,13 @@
 //   • status — 좌상단 AutopilotStatus 필 { tone: 'normal'|'warning', text }
 //   • speech — 페이즈 진입 시 TTS로 읽을 음성 발화 (없으면 null)
 
-// sequence.md 명시 — 4가지 AutopilotStatus 문구. 정상은 normal 톤, 나머지 3개는 warning.
-const STATUS_OK      = { tone: 'normal',  text: '정상 주행 중입니다' }
-const STATUS_DETECT  = { tone: 'warning', text: '오류가 감지되었습니다' }
-const STATUS_CAUSE   = { tone: 'warning', text: '오류 원인을 파악 중입니다' }
-const STATUS_RESOLVE = { tone: 'warning', text: '오류를 해결 중입니다' }
+// sequence.md 명시 — 4가지 AutopilotStatus 문구 + 표시등 색.
+//   🟢 정상 / 🔴 감지 / 🟠 원인 파악 / 🟡 해결 중.
+// `tone`(normal|warning)은 펄스 속도 등 거친 분기에 쓰고, `color`는 표시등 점 색.
+const STATUS_OK      = { tone: 'normal',  color: '#21C46A', text: '정상 주행 중입니다' }      // 🟢
+const STATUS_DETECT  = { tone: 'warning', color: '#EF4444', text: '오류가 감지되었습니다' }    // 🔴
+const STATUS_CAUSE   = { tone: 'warning', color: '#F97316', text: '오류 원인을 파악 중입니다' } // 🟠
+const STATUS_RESOLVE = { tone: 'warning', color: '#EAB308', text: '오류를 해결 중입니다' }     // 🟡
 
 // C1 ─ 회전교차로 밀집교통 (답답함). 9 페이즈.
 const C1_PHASES = [
@@ -65,7 +67,7 @@ export const DRIVE_PHASES_BY_SCENARIO = {
 export const PHASE_NONE = 0
 
 // Default pill state when no phase is active (idle / pre-drive).
-export const DEFAULT_STATUS = { tone: 'normal', text: '정상 주행 중입니다' }
+export const DEFAULT_STATUS = { tone: 'normal', color: '#21C46A', text: '정상 주행 중입니다' }
 
 export function getPhases(scenarioId) {
   return DRIVE_PHASES_BY_SCENARIO[scenarioId] ?? []

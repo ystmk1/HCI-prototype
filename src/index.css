@@ -197,42 +197,40 @@ body {
   width: 13px;
   height: 13px;
   border-radius: 50%;
-  background: #21c46a;
-  /* Breathing halo — `box-shadow` animates the colored ring around the dot
-     so the pill reads as "live" / alert-active without distracting motion. */
-  box-shadow: 0 0 0 4px rgba(33, 196, 106, 0.22);
+  /* Dot color + halo are driven by the `--dot` custom property set inline per
+     status (🟢/🔴/🟠/🟡 from sequence.md). The fallback lives inside var() so
+     the parent's inline value is never shadowed. color-mix derives the
+     translucent ring from that single color. */
+  background: var(--dot, #21c46a);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--dot, #21c46a) 22%, transparent);
   animation: status-dot-breath 2.4s ease-in-out infinite;
 }
 
 @keyframes status-dot-breath {
   0%, 100% {
-    box-shadow: 0 0 0 4px rgba(33, 196, 106, 0.22);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--dot, #21c46a) 22%, transparent);
     transform: scale(1);
   }
   50% {
-    box-shadow: 0 0 0 9px rgba(33, 196, 106, 0.10);
+    box-shadow: 0 0 0 9px color-mix(in srgb, var(--dot, #21c46a) 10%, transparent);
     transform: scale(1.12);
   }
 }
 
 /* Warning state — pill background/text stay identical to the Figma normal
-   variant (286:4588). Only the dot recolors so the alert reads as a state
-   change of the indicator, not a re-skin of the pill. */
+   variant (286:4588). The dot keeps its per-status `--dot` color; warning only
+   speeds up the pulse with a larger ring so it reads as more urgent. */
 .status-pill.warning .status-pill-dot {
-  background: #ef7a3a;
-  box-shadow: 0 0 0 4px rgba(239, 122, 58, 0.22);
-  /* Warning breathes faster with a larger ring expansion so it visually
-     reads as more urgent than the normal idle pulse. */
   animation: status-dot-breath-warning 1.6s ease-in-out infinite;
 }
 
 @keyframes status-dot-breath-warning {
   0%, 100% {
-    box-shadow: 0 0 0 4px rgba(239, 122, 58, 0.22);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--dot, #ef7a3a) 22%, transparent);
     transform: scale(1);
   }
   50% {
-    box-shadow: 0 0 0 11px rgba(239, 122, 58, 0.08);
+    box-shadow: 0 0 0 11px color-mix(in srgb, var(--dot, #ef7a3a) 8%, transparent);
     transform: scale(1.18);
   }
 }
