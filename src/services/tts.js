@@ -1,12 +1,13 @@
 const TTS_ENDPOINT = 'https://texttospeech.googleapis.com/v1/text:synthesize'
 
-// Discrete speed levels. One spoken request should produce a perceptible jump,
-// not a tiny increment, so the rates here are spaced far apart on purpose.
+// Discrete speed levels. Default (normal) sits a touch slower than before and
+// the steps between levels are intentionally small (~0.10) so a speed-change
+// request nudges the pace rather than jumping dramatically.
 export const SPEED_LEVELS = {
-  slow: 0.85,
-  normal: 1.15,
-  fast: 1.5,
-  very_fast: 1.85,
+  slow: 0.95,
+  normal: 1.05,
+  fast: 1.15,
+  very_fast: 1.25,
 }
 export const DEFAULT_SPEED_LEVEL = 'normal'
 export const DEFAULT_SPEAKING_RATE = SPEED_LEVELS[DEFAULT_SPEED_LEVEL]

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Flame, Snowflake, Mic, MicOff, ExternalLink, X, Wind, Volume, Volume1, Volume2, VolumeX, Search } from 'lucide-react'
+import { Flame, Snowflake, Mic, MicOff, X, Wind, Volume, Volume1, Volume2, VolumeX, Search } from 'lucide-react'
 
 // ── Icon imports ────────────────────────────────────────────
 import iconSun from '../assets/icons/Icon-15.svg'
@@ -19,7 +19,6 @@ import iconCalendar from '../assets/icons/Icon.svg'
 import iconMenu from '../assets/icons/Icon-13.svg'
 
 // ── Image imports ───────────────────────────────────────────
-import imgCarHigh from '../assets/images/car_high.png'
 import imgNavigation from '../assets/images/navigation.png'
 
 // ── Service imports ─────────────────────────────────────────
@@ -40,7 +39,7 @@ const TTS_KEY = import.meta.env.VITE_GOOGLE_TTS_API_KEY
 // usually filters the speaker out), then start a hard countdown the moment
 // TTS *ends* and close the mic when it hits 0.
 const FOLLOWUP_OPEN_DELAY_MS = 150        // tiny pause so TTS audio context is up first
-const FOLLOWUP_WINDOW_S      = 5          // seconds the mic stays open after TTS ends
+const FOLLOWUP_WINDOW_S      = 6          // seconds the mic stays open after TTS ends
 
 // Hydroplaning scenario marches the simulated current location through five
 // fixed points as the passenger keeps asking. App.jsx counts the queries and
@@ -191,11 +190,6 @@ function VoiceBar({ isListening, followUpCountdown, onMicClick }) {
             <ListeningWave />
             <span className="voice-listening-text">
               듣는 중...
-              {followUpCountdown != null && (
-                <span style={{ marginLeft: 10, opacity: 0.7, fontVariantNumeric: 'tabular-nums' }}>
-                  {followUpCountdown}초
-                </span>
-              )}
             </span>
           </div>
         ) : (
@@ -621,13 +615,15 @@ function VehicleHMI() {
         aiText = aiText.replace(speedMatch[0], '').trim()
       }
 
-      let hasCard = false
+      // Voice-only: strip the situation/roundabout card tags so they never
+      // surface as text, but never render the "자세히 보기" card — the
+      // explanation is delivered by voice (TTS) only.
+      const hasCard = false
       if (/\[SHOW_SITUATION\]/i.test(aiText) || aiText.includes('[SHOW_ROUNDABOUT_CARD]')) {
         aiText = aiText
           .replace(/\[SHOW_SITUATION\]/gi, '')
           .replace(/\[SHOW_ROUNDABOUT_CARD\]/g, '')
           .trim()
-        hasCard = true
         setHasShownScenarioCard(true)
       }
 
@@ -895,7 +891,9 @@ function VehicleHMI() {
     // (e.g. C2-4 "약 N초 후 정상 마찰 상태로 복귀") so the ETA sounds natural
     // instead of TTS reading the letter "N".
     const line = speech.replace(/N초/g, `${3 + Math.floor(Math.random() * 3)}초`)
-    speakText(line, TTS_KEY, speakingRateRef.current).catch(() => {})
+    console.log(`[Phase TTS] 페이즈 ${currentPhase} 발화:`, line)
+    speakText(line, TTS_KEY, speakingRateRef.current)
+      .catch((err) => console.error('[Phase TTS] 재생 실패:', err))
   }, [currentPhase, activeScenario?.scenarioId])
 
   // Follow-up countdown — once set (when TTS ends) tick down to 0 every
@@ -1076,28 +1074,12 @@ function VehicleHMI() {
                       transition={{ duration: 0.28 }}
                       className={`message-row ${msg.type === 'user' ? 'user' : ''}`}
                     >
-                      {msg.hasRoundaboutCard ? (
-                        <div className="roundabout-card">
-                          <div className="roundabout-card-title">{msg.text}</div>
-                          <div className="roundabout-card-image">
-                            <img src={imgCarHigh} alt="car view" />
-                            <button className="roundabout-card-btn" onClick={() => setShowCarStatus(v => !v)}>
-                              눌러서 자세히 보기 <ExternalLink size={24} color="#131417" strokeWidth={2} />
-                            </button>
-                          </div>
-                        </div>
-                      ) : msg.type === 'ai-card' ? (
-                        /* Voice-only mode: option chips removed. The AI's
-                           text still shows as a normal bubble so the user
-                           hears the options and can voice their choice. */
-                        <div className="message-bubble ai">{msg.text}</div>
-                      ) : (
-                        <>
-                          <div className={`message-bubble ${msg.type} ${msg.isConfirmation ? 'confirmation' : ''}`}>
-                            {msg.text}
-                          </div>
-                        </>
-                      )}
+                      {/* Voice-only mode: no "자세히 보기" detail card and no
+                          option chips — every AI turn is a plain text bubble and
+                          the actual guidance is spoken via TTS. */}
+                      <div className={`message-bubble ${msg.type === 'ai-card' ? 'ai' : msg.type} ${msg.isConfirmation ? 'confirmation' : ''}`}>
+                        {msg.text}
+                      </div>
                     </motion.div>
                   ))}
 
