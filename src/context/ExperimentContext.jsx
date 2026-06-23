@@ -419,12 +419,13 @@ export function ExperimentProvider({ children }) {
     [broadcast]
   )
 
-  // ── Driving-phase control (1..10 per drive.md; 0 = none) ─
-  // Operator advances this via Ctrl+Alt+1..9, Ctrl+Alt+0 (= 10), or the
-  // Operator Console phase panel. Synced across windows.
+  // ── Driving-phase control (1..13 per sequence.md; 0 = none) ─
+  // Operator advances this via Ctrl+→ / Ctrl+← on the HMI, or the Operator
+  // Console phase panel. Synced across windows. Upper bound covers the longest
+  // sequence (C2 수막현상 = 13 phases).
   const setPhase = useCallback(
     (phase) => {
-      const next = Number.isInteger(phase) ? Math.max(0, Math.min(10, phase)) : 0
+      const next = Number.isInteger(phase) ? Math.max(0, Math.min(13, phase)) : 0
       setCurrentPhase(next)
       broadcast(BC.SET_PHASE, { phase: next })
     },

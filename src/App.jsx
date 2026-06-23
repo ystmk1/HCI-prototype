@@ -27,7 +27,7 @@ import { getGeminiResponse } from './services/gemini'
 import { speakText, SPEED_LEVELS, DEFAULT_SPEED_LEVEL } from './services/tts'
 import { useWakeWord } from './hooks/useWakeWord'
 import { findFavorite, adhocContact } from './data/contacts'
-import { getPhase, getPhaseCount, DEFAULT_STATUS, parseBoldSegments, stripMarkers } from './data/drivePhases'
+import { getPhase, getPhaseCount, getPhaseSpeech, DEFAULT_STATUS, parseBoldSegments, stripMarkers } from './data/drivePhases'
 import AppView from './components/AppViews'
 import ControlPanel from './components/ControlPanel'
 import { ExperimentProvider, useExperiment } from './context/ExperimentContext'
@@ -876,6 +876,21 @@ function VehicleHMI() {
   useEffect(() => { mutedRef.current = muted }, [muted])
   useEffect(() => { activeRouteRef.current = activeRoute }, [activeRoute])
   useEffect(() => { currentPhaseRef.current = currentPhase }, [currentPhase])
+
+  // Speak the scripted SA line whenever the operator advances to a new drive
+  // phase (Ctrl+→/← on the HMI, or the Operator Console phase panel). Voice
+  // only — nothing is posted to the chat. Phase 0 (idle/reset) and silent
+  // ('ㅡ') phases stay quiet. A ref guards against re-speaking on unrelated
+  // re-renders; only an actual phase change fires TTS.
+  const spokenPhaseRef = useRef(0)
+  useEffect(() => {
+    if (currentPhase === spokenPhaseRef.current) return
+    spokenPhaseRef.current = currentPhase
+    if (!currentPhase || !TTS_KEY) return
+    const speech = getPhaseSpeech(activeScenario?.scenarioId, currentPhase)
+    if (!speech) return
+    speakText(speech, TTS_KEY, speakingRateRef.current).catch(() => {})
+  }, [currentPhase, activeScenario?.scenarioId])
 
   // Follow-up countdown — once set (when TTS ends) tick down to 0 every
   // second and stop the recognizer. Cleared early if the passenger speaks

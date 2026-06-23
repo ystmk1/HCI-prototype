@@ -5,7 +5,7 @@ import * as sessionLogger from '../services/sessionLogger'
 import { contributeExamples } from '../services/promptExamples'
 import { isSupabaseEnabled } from '../services/supabase'
 import PromptEditor from './PromptEditor'
-import { getPhases, stripMarkers } from '../data/drivePhases'
+import { getPhases } from '../data/drivePhases'
 
 const FONT = "'Pretendard Variable', 'Pretendard', system-ui, sans-serif"
 
@@ -471,7 +471,8 @@ export default function OperatorConsole() {
         </SectionCard>
 
         {/* ── Drive phase panel ─────────────────────────────────── */}
-        {/* drive.md 시퀀스 — 시나리오마다 페이즈 개수가 다름 (C1=13, C2=6). */}
+        {/* sequence.md 시퀀스 — 시나리오마다 페이즈 개수가 다름 (C1=9, C2=13). */}
+        {/* 페이즈별 음성 발화는 HMI에서 TTS로 재생됨 (채팅 미게시). */}
         {/* HMI 단축키: Ctrl+→ 다음 페이즈, Ctrl+← 이전 페이즈. */}
         {(() => {
           const phases = getPhases(activeScenario?.scenarioId)
@@ -513,9 +514,10 @@ export default function OperatorConsole() {
                   )}
                 </div>
                 {cur && (
-                  <div className="mt-2 text-sm leading-snug text-gray-700">
-                    <div>{stripMarkers(cur.judgment[0])}</div>
-                    <div>{stripMarkers(cur.judgment[1])}</div>
+                  <div className="mt-2 text-sm leading-snug">
+                    {cur.speech
+                      ? <div className="text-gray-700">🔊 {cur.speech}</div>
+                      : <div className="text-gray-400">음성 안내 없음 (무음 페이즈)</div>}
                   </div>
                 )}
               </div>
@@ -580,8 +582,9 @@ export default function OperatorConsole() {
                             {p.status?.text}
                           </span>
                         </div>
-                        <div className="text-xs text-gray-700 leading-snug mt-1">{stripMarkers(p.judgment[0])}</div>
-                        <div className="text-xs text-gray-500 leading-snug">{stripMarkers(p.judgment[1])}</div>
+                        {p.speech
+                          ? <div className="text-xs text-gray-700 leading-snug mt-1">🔊 {p.speech}</div>
+                          : <div className="text-xs text-gray-400 leading-snug mt-1">— 음성 안내 없음</div>}
                       </div>
                     </button>
                   )
